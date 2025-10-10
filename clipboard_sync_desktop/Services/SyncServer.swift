@@ -49,8 +49,8 @@ final class SyncServer: ObservableObject {
                     guard let self else { return }
                     switch state {
                     case .ready:
-                        if case let .port(port) = listener.port {
-                            self.state = .listening(port: port.rawValue)
+                        if let port = listener.port?.rawValue {
+                            self.state = .listening(port: port)
                         }
                     case .failed(let error):
                         self.state = .failed(error)
