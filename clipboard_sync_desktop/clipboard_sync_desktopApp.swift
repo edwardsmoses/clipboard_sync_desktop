@@ -9,9 +9,12 @@ import SwiftUI
 
 @main
 struct clipboard_sync_desktopApp: App {
+    @StateObject private var viewModel = AppViewModel()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(viewModel)
         }
     }
 }
