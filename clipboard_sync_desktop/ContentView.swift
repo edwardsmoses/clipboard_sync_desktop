@@ -389,6 +389,132 @@ private struct EntryRow: View {
     }
 }
 
+private struct EntryDetailView: View {
+    let entry: ClipboardEntry
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                header
+
+                if let text = entry.text, !text.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Content")
+                            .font(.headline)
+                        Text(text)
+                            .font(.body)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .modifier(DetailCardStyle())
+                }
+
+                if let imageData = entry.imageData, let image = NSImage(data: imageData) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Image")
+                            .font(.headline)
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .cornerRadius(16)
+                            .shadow(radius: 8)
+                    }
+                    .modifier(DetailCardStyle())
+                }
+
+                metadata
+            }
+            .padding(32)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(entry.deviceName)
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+
+            Text(entry.createdAt.formatted(date: .complete, time: .standard))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                StatusTag(text: entry.contentType.rawValue.capitalized, tint: Color(hex: 0xf1f5f9), contentColor: Color(hex: 0x0f172a))
+                StatusTag(text: entry.syncState.rawValue.capitalized, tint: Color(hex: 0xe5e7eb), contentColor: Color(hex: 0x1f2937))
+                if entry.isPinned {
+                    StatusTag(text: "Pinned", tint: Color(hex: 0xfbbf24), contentColor: .black)
+                }
+            }
+
+            if let text = entry.text, !text.isEmpty {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                } label: {
+                    Label("Copy text to clipboard", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color(hex: 0x2563eb))
+            }
+        }
+        .modifier(DetailCardStyle())
+    }
+
+    private var metadata: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Metadata")
+                .font(.headline)
+
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
+                GridRow {
+                    Text("Entry ID")
+                        .fontWeight(.semibold)
+                    Text(entry.id.uuidString)
+                        .font(.body.monospacedDigit())
+                        .textSelection(.enabled)
+                }
+                GridRow {
+                    Text("Device ID")
+                        .fontWeight(.semibold)
+                    Text(entry.deviceId)
+                        .font(.body.monospacedDigit())
+                        .textSelection(.enabled)
+                }
+                if let syncedAt = entry.syncedAt {
+                    GridRow {
+                        Text("Synced")
+                            .fontWeight(.semibold)
+                        Text(syncedAt.formatted(date: .abbreviated, time: .shortened))
+                    }
+                }
+                if let metadata = entry.metadata, !metadata.isEmpty {
+                    ForEach(metadata.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                        GridRow {
+                            Text(key.capitalized)
+                                .fontWeight(.semibold)
+                            Text(value)
+                        }
+                    }
+                }
+            }
+        }
+        .modifier(DetailCardStyle())
+    }
+}
+
+private struct DetailCardStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(24)
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .shadow(color: Color.black.opacity(0.05), radius: 16, x: 0, y: 8)
+            )
+    }
+}
+
 private struct IconBadge: View {
     let contentType: ClipboardContentType
 
