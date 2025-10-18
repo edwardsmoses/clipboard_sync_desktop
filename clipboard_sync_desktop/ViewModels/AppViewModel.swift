@@ -5,9 +5,13 @@ import Foundation
 final class AppViewModel: ObservableObject {
     @Published private(set) var historyStore = ClipboardHistoryStore()
     @Published private(set) var syncServer = SyncServer()
+    @Published private(set) var networkSummary: NetworkSummary = .disconnected
     @Published var isWatching = false
+    @Published var isDiscoverable: Bool
 
     private let watcher = PasteboardWatcher()
+    private let networkMonitor = NetworkMonitor()
+    private var cancellables = Set<AnyCancellable>()
     private let deviceId: String
     private let deviceName: String
 
@@ -22,6 +26,11 @@ final class AppViewModel: ObservableObject {
         }
         deviceName = Host.current().localizedName ?? "Mac"
 
+        if defaults.object(forKey: "settings.discoverable") == nil {
+            defaults.set(true, forKey: "settings.discoverable")
+        }
+        isDiscoverable = defaults.bool(forKey: "settings.discoverable")
+
         historyStore.load()
 
         watcher.onSnapshot = { [weak self] snapshot in
@@ -29,12 +38,24 @@ final class AppViewModel: ObservableObject {
                 await self?.ingest(snapshot: snapshot)
             }
         }
+
+        networkMonitor.$summary
+            .receive(on: RunLoop.main)
+            .sink { [weak self] summary in
+                self?.networkSummary = summary
+            }
+            .store(in: &cancellables)
+        networkMonitor.start()
+    }
+
+    deinit {
+        networkMonitor.stop()
     }
 
     func start() {
         guard !isWatching else { return }
         watcher.start()
-        syncServer.start()
+        syncServer.start(discoverable: isDiscoverable)
         isWatching = true
     }
 
@@ -52,6 +73,22 @@ final class AppViewModel: ObservableObject {
         var updated = entry
         updated.isPinned.toggle()
         historyStore.upsert(updated)
+    }
+
+    func setDiscoverable(_ newValue: Bool) {
+        guard isDiscoverable != newValue else { return }
+        isDiscoverable = newValue
+        UserDefaults.standard.set(newValue, forKey: "settings.discoverable")
+        syncServer.updateDiscoverability(newValue)
+    }
+
+    var pairingEndpoint: String? {
+        guard case let .listening(port) = syncServer.state else { return nil }
+        if let address = networkSummary.localAddress {
+            return "ws://\(address):\(port)"
+        }
+        let host = ProcessInfo.processInfo.hostName
+        return "ws://\(host):\(port)"
     }
 
     private func ingest(snapshot: PasteboardSnapshot) async {

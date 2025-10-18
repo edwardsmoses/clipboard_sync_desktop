@@ -23,10 +23,13 @@ final class SyncServer: ObservableObject {
     private var listener: NWListener?
     private var queue = DispatchQueue(label: "com.clipboard.sync.server")
     private var cancellables: [UUID: NWConnection] = [:]
+    private var isDiscoverable = true
+    private let serviceName = "Clipboard Sync"
 
-    func start(on port: UInt16 = 0) {
+    func start(on port: UInt16 = 0, discoverable: Bool = true) {
         guard listener == nil else { return }
         state = .starting
+        isDiscoverable = discoverable
 
         do {
             let parameters = NWParameters.tcp
@@ -36,7 +39,11 @@ final class SyncServer: ObservableObject {
 
             let nwPort = port == 0 ? NWEndpoint.Port.any : NWEndpoint.Port(rawValue: port)!
             let listener = try NWListener(using: parameters, on: nwPort)
-            listener.service = NWListener.Service(name: "Clipboard Sync", type: "_clipboardsync._tcp")
+            if discoverable {
+                listener.service = NWListener.Service(name: serviceName, type: "_clipboardsync._tcp")
+            } else {
+                listener.service = nil
+            }
 
             listener.newConnectionHandler = { [weak self] connection in
                 Task { @MainActor [weak self] in
@@ -77,12 +84,21 @@ final class SyncServer: ObservableObject {
         cancellables.removeAll()
         clients.removeAll()
         state = .stopped
+        isDiscoverable = true
     }
 
     func broadcast(json: Any) {
         guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
         for client in cancellables.values {
             send(data: data, to: client)
+        }
+    }
+
+    func updateDiscoverability(_ newValue: Bool) {
+        guard isDiscoverable != newValue else { return }
+        isDiscoverable = newValue
+        if let listener {
+            listener.service = newValue ? NWListener.Service(name: serviceName, type: "_clipboardsync._tcp") : nil
         }
     }
 

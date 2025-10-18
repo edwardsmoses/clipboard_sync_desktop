@@ -6,29 +6,67 @@
 //
 
 import AppKit
+import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @State private var selection: ClipboardEntry.ID?
+    @State private var searchQuery = ""
+    @State private var isPairSheetPresented = false
+
+    private var filteredEntries: [ClipboardEntry] {
+        let entries = viewModel.historyStore.entries
+        let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return entries
+        }
+        let needle = trimmed.lowercased()
+        return entries.filter { entry in
+            entry.preview.lowercased().contains(needle)
+                || entry.deviceName.lowercased().contains(needle)
+        }
+    }
+
+    private var pinnedEntries: [ClipboardEntry] {
+        filteredEntries.filter(\.isPinned)
+    }
+
+    private var recentEntries: [ClipboardEntry] {
+        filteredEntries.filter { !$0.isPinned }
+    }
 
     var body: some View {
         NavigationSplitView {
-            HistoryListView(
-                store: viewModel.historyStore,
+            SidebarView(
+                viewModel: viewModel,
+                entries: filteredEntries,
+                pinnedEntries: pinnedEntries,
+                recentEntries: recentEntries,
                 selection: $selection,
-                onPin: viewModel.togglePin,
+                searchQuery: $searchQuery,
+                isDiscoverable: Binding(
+                    get: { viewModel.isDiscoverable },
+                    set: { viewModel.setDiscoverable($0) }
+                ),
+                onPair: { isPairSheetPresented = true },
+                onTogglePin: viewModel.togglePin,
                 onDelete: viewModel.delete
             )
-            .navigationTitle("Clipboard history")
+            .navigationTitle("Clipboard vault")
         } detail: {
             if let selection,
                let entry = viewModel.historyStore.entries.first(where: { $0.id == selection }) {
                 EntryDetailView(entry: entry)
             } else {
-                ContentUnavailableView("Select an entry", systemImage: "doc.on.clipboard")
-                    .foregroundStyle(.secondary)
+                DashboardPlaceholder()
             }
+        }
+        .sheet(isPresented: $isPairSheetPresented) {
+            PairingSheet(
+                endpoint: viewModel.pairingEndpoint,
+                networkSummary: viewModel.networkSummary
+            )
         }
         .onAppear {
             viewModel.start()
@@ -36,63 +74,313 @@ struct ContentView: View {
     }
 }
 
-struct HistoryListView: View {
-    @ObservedObject var store: ClipboardHistoryStore
+private struct SidebarView: View {
+    @ObservedObject var viewModel: AppViewModel
+    let entries: [ClipboardEntry]
+    let pinnedEntries: [ClipboardEntry]
+    let recentEntries: [ClipboardEntry]
     @Binding var selection: ClipboardEntry.ID?
-    var onPin: (ClipboardEntry) -> Void
+    @Binding var searchQuery: String
+    @Binding var isDiscoverable: Bool
+    var onPair: () -> Void
+    var onTogglePin: (ClipboardEntry) -> Void
     var onDelete: (ClipboardEntry) -> Void
+
+    private var statusDescriptor: StatusDescriptor {
+        switch viewModel.syncServer.state {
+        case .stopped:
+            return .init(label: "Stopped", tint: Color(nsColor: .systemGray))
+        case .starting:
+            return .init(label: "Starting...", tint: Color(hex: 0xf59e0b))
+        case .listening:
+            if isDiscoverable {
+                return .init(label: "Discoverable", tint: Color(hex: 0x4ade80))
+            } else {
+                return .init(label: "Listening", tint: Color(hex: 0xfbbf24))
+            }
+        case .failed:
+            return .init(label: "Error", tint: Color(hex: 0xf87171))
+        }
+    }
+
+    private var totalEntries: Int {
+        viewModel.historyStore.entries.count
+    }
 
     var body: some View {
         List(selection: $selection) {
-            let pinned = store.entries.filter { $0.isPinned }
-            let recent = store.entries.filter { !$0.isPinned }
+            Section {
+                HeroCard(
+                    status: statusDescriptor,
+                    entryCount: totalEntries,
+                    filteredCount: entries.count,
+                    networkDescription: viewModel.networkSummary.description
+                )
+            }
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
 
-            if !pinned.isEmpty {
+            Section {
+                PairingCard(
+                    networkSummary: viewModel.networkSummary,
+                    isDiscoverable: $isDiscoverable,
+                    endpoint: viewModel.pairingEndpoint,
+                    onPair: onPair
+                )
+            }
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+
+            if !viewModel.syncServer.clients.isEmpty {
+                Section("Active connections") {
+                    ForEach(viewModel.syncServer.clients) { client in
+                        ConnectedDeviceRow(client: client)
+                    }
+                }
+            }
+
+            Section {
+                SearchCard(
+                    query: $searchQuery,
+                    totalCount: totalEntries,
+                    filteredCount: entries.count
+                )
+            }
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+
+            if !pinnedEntries.isEmpty {
                 Section("Pinned") {
-                    ForEach(pinned) { entry in
-                        HistoryRow(entry: entry, onPin: onPin, onDelete: onDelete)
+                    ForEach(pinnedEntries) { entry in
+                        NavigationLink(value: entry.id) {
+                            EntryRow(entry: entry, onTogglePin: onTogglePin, onDelete: onDelete)
+                        }
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                     }
                 }
             }
 
             Section("Recent") {
-                ForEach(recent) { entry in
-                    HistoryRow(entry: entry, onPin: onPin, onDelete: onDelete)
+                if recentEntries.isEmpty {
+                    Text("Copy something to see it here.")
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 12)
                 }
-                .onDelete { indexSet in
-                    indexSet.map { recent[$0] }.forEach(onDelete)
+                ForEach(recentEntries) { entry in
+                    NavigationLink(value: entry.id) {
+                        EntryRow(entry: entry, onTogglePin: onTogglePin, onDelete: onDelete)
+                    }
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                 }
             }
         }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
-private struct HistoryRow: View {
-    let entry: ClipboardEntry
-    var onPin: (ClipboardEntry) -> Void
-    var onDelete: (ClipboardEntry) -> Void
+private struct HeroCard: View {
+    let status: StatusDescriptor
+    let entryCount: Int
+    let filteredCount: Int
+    let networkDescription: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 8) {
-                Text(entry.preview.isEmpty ? "(empty)" : entry.preview)
-                    .font(.headline)
-                    .lineLimit(2)
-                if entry.isPinned {
-                    Image(systemName: "pin.fill")
-                        .foregroundStyle(.orange)
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Clipboard vault")
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.white)
+
+            Text("Your snippets stay in sync across devices. Tap a card to preview or copy instantly.")
+                .foregroundStyle(Color.white.opacity(0.9))
+                .font(.system(size: 15))
+
+            HStack(spacing: 12) {
+                StatusChip(label: status.label, tint: status.tint)
+                StatusChip(label: "\(entryCount) saved", tint: Color.white.opacity(0.2), contentColor: .white)
+                StatusChip(label: networkDescription, tint: Color.white.opacity(0.18), contentColor: .white)
+            }
+
+            if filteredCount != entryCount {
+                Text("\(filteredCount) results match your search")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.8))
+            }
+        }
+        .padding(24)
+        .background(
+            LinearGradient(
+                colors: [Color(hex: 0x1d4ed8), Color(hex: 0x1e40af)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .cornerRadius(32)
+        .shadow(color: Color.black.opacity(0.25), radius: 24, x: 0, y: 14)
+    }
+}
+
+private struct PairingCard: View {
+    let networkSummary: NetworkSummary
+    var isDiscoverable: Binding<Bool>
+    let endpoint: String?
+    var onPair: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Pair a device")
+                .font(.system(size: 22, weight: .semibold, design: .rounded))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Label(networkSummary.description, systemImage: networkSummary.isConnected ? "wifi" : "wifi.slash")
+                    .font(.subheadline)
+                    .foregroundStyle(networkSummary.isConnected ? Color(hex: 0x2563eb) : Color.red)
+                if let address = networkSummary.localAddress, networkSummary.isConnected {
+                    Text("Local address \(address)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if !networkSummary.isConnected {
+                    Text("Connect this Mac and your phone to the same network to begin pairing.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            Text(entry.deviceName)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
+
+            Toggle(isOn: isDiscoverable) {
+                Text("Allow this Mac to be discoverable on the network")
+                    .font(.subheadline)
+            }
+            .toggleStyle(.switch)
+
+            HStack {
+                Button(action: onPair) {
+                    Label("Show pairing code", systemImage: "qrcode.viewfinder")
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color(hex: 0x2563eb))
+
+                if endpoint == nil {
+                    Text("Bridge is starting…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Players can also connect via the QR code.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 8)
+        )
+    }
+}
+
+private struct SearchCard: View {
+    @Binding var query: String
+    let totalCount: Int
+    let filteredCount: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Search history")
+                .font(.headline)
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Find saved snippets…", text: $query)
+                    .textFieldStyle(.plain)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(nsColor: .textBackgroundColor))
+            )
+
+            Text(summaryText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
+        )
+    }
+
+    private var summaryText: String {
+        if query.isEmpty {
+            return "\(totalCount) item\(totalCount == 1 ? "" : "s") stored locally."
+        }
+        let pluralSuffix = filteredCount == 1 ? "" : "es"
+        return "\(filteredCount) match\(pluralSuffix) for “\(query)”."
+    }
+}
+
+private struct EntryRow: View {
+    let entry: ClipboardEntry
+    var onTogglePin: (ClipboardEntry) -> Void
+    var onDelete: (ClipboardEntry) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                IconBadge(contentType: entry.contentType)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.deviceName)
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+
+                Menu {
+                    Button(entry.isPinned ? "Unpin" : "Pin") {
+                        onTogglePin(entry)
+                    }
+                    Button("Delete", role: .destructive) {
+                        onDelete(entry)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .fixedSize()
+            }
+
+            Text(entry.preview.isEmpty ? "No preview available" : entry.preview)
+                .font(.system(size: 15))
+                .lineLimit(3)
+
+            HStack(spacing: 8) {
+                StatusTag(text: entry.isPinned ? "Pinned" : "Pin", tint: entry.isPinned ? Color(hex: 0xfbbf24) : Color(hex: 0xe0e7ff), contentColor: entry.isPinned ? .black : Color(hex: 0x1d4ed8))
+                    .onTapGesture {
+                        onTogglePin(entry)
+                    }
+                StatusTag(text: entry.syncState.rawValue.capitalized, tint: Color(hex: 0xe5e7eb), contentColor: Color(hex: 0x1f2937))
+                StatusTag(text: entry.contentType.rawValue.capitalized, tint: Color(hex: 0xf1f5f9), contentColor: Color(hex: 0x0f172a))
+            }
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .shadow(color: Color.black.opacity(0.06), radius: 12, x: 0, y: 6)
+        )
         .contextMenu {
             Button(entry.isPinned ? "Unpin" : "Pin") {
-                onPin(entry)
+                onTogglePin(entry)
             }
             Button("Delete", role: .destructive) {
                 onDelete(entry)
@@ -101,45 +389,229 @@ private struct HistoryRow: View {
     }
 }
 
-struct EntryDetailView: View {
-    let entry: ClipboardEntry
+private struct IconBadge: View {
+    let contentType: ClipboardContentType
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(entry.deviceName)
-                    .font(.title2)
-                    .bold()
-                Text(entry.createdAt.formatted(date: .complete, time: .standard))
-                    .foregroundStyle(.secondary)
-
-                if let text = entry.text {
-                    Text(text)
-                        .font(.body)
-                        .textSelection(.enabled)
-                }
-
-                if let imageData = entry.imageData, let image = NSImage(data: imageData) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .cornerRadius(12)
-                        .shadow(radius: 4)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Metadata")
-                        .font(.headline)
-                    LabeledContent("Content type", value: entry.contentType.rawValue)
-                    LabeledContent("Sync state", value: entry.syncState.rawValue)
-                    if let syncedAt = entry.syncedAt {
-                        LabeledContent("Synced at", value: syncedAt.formatted(date: .abbreviated, time: .shortened))
-                    }
-                    LabeledContent("Identifier", value: entry.id.uuidString)
-                }
-            }
-            .padding()
+        ZStack {
+            Circle()
+                .fill(iconColor.opacity(0.18))
+                .frame(width: 40, height: 40)
+            Image(systemName: iconName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(iconColor)
         }
+    }
+
+    private var iconName: String {
+        switch contentType {
+        case .text:
+            return "text.alignleft"
+        case .html:
+            return "curlybraces"
+        case .image:
+            return "photo"
+        case .file:
+            return "doc"
+        case .unknown:
+            return "questionmark"
+        }
+    }
+
+    private var iconColor: Color {
+        switch contentType {
+        case .text:
+            return Color(hex: 0x2563eb)
+        case .html:
+            return Color(hex: 0x0ea5e9)
+        case .image:
+            return Color(hex: 0x22c55e)
+        case .file:
+            return Color(hex: 0xf97316)
+        case .unknown:
+            return Color(hex: 0x6b7280)
+        }
+    }
+}
+
+private struct StatusTag: View {
+    let text: String
+    let tint: Color
+    var contentColor: Color = .black
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .fontWeight(.semibold)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(tint)
+            )
+            .foregroundStyle(contentColor)
+    }
+}
+
+private struct StatusChip: View {
+    let label: String
+    let tint: Color
+    var contentColor: Color = .black
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(contentColor == .white ? Color.white.opacity(0.8) : tint.opacity(0.9))
+                .frame(width: 8, height: 8)
+            Text(label)
+                .font(.system(size: 13, weight: .semibold))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(
+            Capsule()
+                .fill(tint)
+        )
+        .foregroundStyle(contentColor)
+    }
+}
+
+private struct ConnectedDeviceRow: View {
+    let client: SyncClientInfo
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "iphone")
+                .foregroundStyle(Color(hex: 0x2563eb))
+            VStack(alignment: .leading) {
+                Text(client.deviceName ?? "Unnamed device")
+                    .font(.subheadline)
+                Text("Live connection")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+private struct DashboardPlaceholder: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "rectangle.on.rectangle.angled")
+                .font(.system(size: 42))
+                .foregroundStyle(Color(hex: 0x2563eb))
+            Text("Select a clipboard item")
+                .font(.title3.bold())
+            Text("Choose a card from the left to inspect the full content, metadata, and sync status.")
+                .font(.body)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 320)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct PairingSheet: View {
+    let endpoint: String?
+    let networkSummary: NetworkSummary
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Capsule()
+                .fill(Color.secondary.opacity(0.2))
+                .frame(width: 48, height: 6)
+
+            Text("Pair with your phone")
+                .font(.title2.weight(.semibold))
+
+            if let endpoint {
+                QRCodeView(value: endpoint)
+                    .frame(width: 220, height: 220)
+
+                VStack(spacing: 8) {
+                    Text(endpoint)
+                        .font(.system(.body, design: .monospaced))
+                        .padding(10)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .textBackgroundColor)))
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(endpoint, forType: .string)
+                    } label: {
+                        Label("Copy connection URL", systemImage: "doc.on.doc")
+                    }
+                }
+            } else {
+                ProgressView("Preparing secure bridge…")
+                    .progressViewStyle(.circular)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Label(networkSummary.description, systemImage: networkSummary.isConnected ? "wifi" : "wifi.slash")
+                    .foregroundStyle(networkSummary.isConnected ? Color.green : Color.red)
+                Text("Make sure your iPhone is on the same network, then open the Clipboard Sync app and choose “Pair new device”.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button("Close") {
+                dismiss()
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(32)
+        .frame(width: 420)
+    }
+}
+
+private struct QRCodeView: View {
+    let value: String
+    private let context = CIContext()
+
+    var body: some View {
+        if let image = generateImage() {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.none)
+                .scaledToFit()
+        } else {
+            Image(systemName: "xmark.octagon")
+                .foregroundStyle(.red)
+        }
+    }
+
+    private func generateImage() -> NSImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(value.utf8)
+        guard let outputImage = filter.outputImage?
+            .transformed(by: CGAffineTransform(scaleX: 10, y: 10)),
+            let cgImage = context.createCGImage(outputImage, from: outputImage.extent)
+        else {
+            return nil
+        }
+
+        let size = NSSize(width: outputImage.extent.width, height: outputImage.extent.height)
+        let rep = NSBitmapImageRep(cgImage: cgImage)
+        rep.size = size
+        let image = NSImage(size: size)
+        image.addRepresentation(rep)
+        return image
+    }
+}
+
+private struct StatusDescriptor {
+    let label: String
+    let tint: Color
+}
+
+private extension Color {
+    init(hex: UInt32) {
+        let red = Double((hex & 0xFF0000) >> 16) / 255.0
+        let green = Double((hex & 0x00FF00) >> 8) / 255.0
+        let blue = Double(hex & 0x0000FF) / 255.0
+        self.init(red: red, green: green, blue: blue)
     }
 }
 
