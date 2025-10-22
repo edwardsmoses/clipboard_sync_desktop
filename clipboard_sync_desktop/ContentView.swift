@@ -6,7 +6,6 @@
 //
 
 import AppKit
-import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 struct ContentView: View {
@@ -65,6 +64,7 @@ struct ContentView: View {
         .sheet(isPresented: $isPairSheetPresented) {
             PairingSheet(
                 endpoint: viewModel.pairingEndpoint,
+                pairingCode: viewModel.pairingCode,
                 networkSummary: viewModel.networkSummary
             )
         }
@@ -257,7 +257,7 @@ private struct PairingCard: View {
 
             HStack {
                 Button(action: onPair) {
-                    Label("Show pairing code", systemImage: "qrcode.viewfinder")
+                    Label("Show pairing code", systemImage: "number.square")
                         .padding(.horizontal, 18)
                         .padding(.vertical, 10)
                 }
@@ -269,7 +269,7 @@ private struct PairingCard: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("Players can also connect via the QR code.")
+                    Text("Keep this window open until you finish entering the code on your phone.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -641,6 +641,7 @@ private struct DashboardPlaceholder: View {
 
 private struct PairingSheet: View {
     let endpoint: String?
+    let pairingCode: String?
     let networkSummary: NetworkSummary
     @Environment(\.dismiss) private var dismiss
 
@@ -653,11 +654,41 @@ private struct PairingSheet: View {
             Text("Pair with your phone")
                 .font(.title2.weight(.semibold))
 
-            if let endpoint {
-                QRCodeView(value: endpoint)
-                    .frame(width: 220, height: 220)
+            if let code = pairingCode, let endpoint {
+                PairingCodeDisplay(code: code)
 
                 VStack(spacing: 8) {
+                    Text("Enter this code on your phone. We’ll use it to autofill the secure connection.")
+                        .multilineTextAlignment(.center)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(code.replacingOccurrences(of: "-", with: ""), forType: .string)
+                    } label: {
+                        Label("Copy code", systemImage: "number")
+                    }
+                }
+
+                VStack(spacing: 8) {
+                    Text(endpoint)
+                        .font(.system(.body, design: .monospaced))
+                        .padding(10)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .textBackgroundColor)))
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(endpoint, forType: .string)
+                    } label: {
+                        Label("Copy connection URL", systemImage: "doc.on.doc")
+                    }
+                }
+            } else if let endpoint {
+                VStack(spacing: 12) {
+                    Text("We couldn’t generate a code automatically, but you can copy the secure link below and paste it on your phone.")
+                        .font(.subheadline)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
                     Text(endpoint)
                         .font(.system(.body, design: .monospaced))
                         .padding(10)
@@ -677,7 +708,7 @@ private struct PairingSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label(networkSummary.description, systemImage: networkSummary.isConnected ? "wifi" : "wifi.slash")
                     .foregroundStyle(networkSummary.isConnected ? Color.green : Color.red)
-                Text("Make sure your iPhone is on the same network, then open the Clipboard Sync app and choose “Pair new device”.")
+                Text("Make sure your phone is on the same network, then choose “Pair new device” in Clipboard Sync and enter the code above.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -692,38 +723,32 @@ private struct PairingSheet: View {
     }
 }
 
-private struct QRCodeView: View {
-    let value: String
-    private let context = CIContext()
+private struct PairingCodeDisplay: View {
+    let code: String
 
-    var body: some View {
-        if let image = generateImage() {
-            Image(nsImage: image)
-                .resizable()
-                .interpolation(.none)
-                .scaledToFit()
-        } else {
-            Image(systemName: "xmark.octagon")
-                .foregroundStyle(.red)
-        }
+    private var groups: [String] {
+        code
+            .uppercased()
+            .split(separator: "-")
+            .map(String.init)
     }
 
-    private func generateImage() -> NSImage? {
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(value.utf8)
-        guard let outputImage = filter.outputImage?
-            .transformed(by: CGAffineTransform(scaleX: 10, y: 10)),
-            let cgImage = context.createCGImage(outputImage, from: outputImage.extent)
-        else {
-            return nil
+    var body: some View {
+        HStack(spacing: 12) {
+            ForEach(groups, id: \.self) { group in
+                Text(group)
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .kerning(4)
+                    .frame(minWidth: 80)
+                    .padding(.vertical, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                            .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+                    )
+            }
         }
-
-        let size = NSSize(width: outputImage.extent.width, height: outputImage.extent.height)
-        let rep = NSBitmapImageRep(cgImage: cgImage)
-        rep.size = size
-        let image = NSImage(size: size)
-        image.addRepresentation(rep)
-        return image
+        .padding(.vertical, 4)
     }
 }
 

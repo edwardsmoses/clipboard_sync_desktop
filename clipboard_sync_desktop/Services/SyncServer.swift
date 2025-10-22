@@ -60,8 +60,9 @@ final class SyncServer: ObservableObject {
                             self.state = .listening(port: port)
                         }
                     case .failed(let error):
+                        // Preserve failure state so the UI can surface it.
                         self.state = .failed(error)
-                        self.stop()
+                        self.cleanupConnections()
                     default:
                         break
                     }
@@ -76,6 +77,12 @@ final class SyncServer: ObservableObject {
     }
 
     func stop() {
+        cleanupConnections()
+        state = .stopped
+        isDiscoverable = true
+    }
+
+    private func cleanupConnections() {
         listener?.cancel()
         listener = nil
         for connection in cancellables.values {
@@ -83,8 +90,6 @@ final class SyncServer: ObservableObject {
         }
         cancellables.removeAll()
         clients.removeAll()
-        state = .stopped
-        isDiscoverable = true
     }
 
     func broadcast(json: Any) {

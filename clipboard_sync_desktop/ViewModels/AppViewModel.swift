@@ -91,6 +91,14 @@ final class AppViewModel: ObservableObject {
         return "ws://\(host):\(port)"
     }
 
+    var pairingCode: String? {
+        guard case let .listening(port) = syncServer.state,
+              let address = networkSummary.localAddress else {
+            return nil
+        }
+        return PairingCode.generate(address: address, port: port)
+    }
+
     private func ingest(snapshot: PasteboardSnapshot) async {
         let now = Date()
         let entry = ClipboardEntry(
