@@ -55,7 +55,8 @@ final class AppViewModel: ObservableObject {
     func start() {
         guard !isWatching else { return }
         watcher.start()
-        syncServer.start(discoverable: isDiscoverable)
+        // Use a stable port so previously saved endpoints remain valid.
+        syncServer.start(on: 51858, discoverable: isDiscoverable)
         isWatching = true
     }
 
