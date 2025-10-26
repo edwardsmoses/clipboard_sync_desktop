@@ -64,6 +64,11 @@ final class ClipboardHistoryStore: ObservableObject {
         save()
     }
 
+    func clear() {
+        entries.removeAll()
+        save()
+    }
+
     func markSynced(id: UUID) {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         entries[index].syncState = .synced

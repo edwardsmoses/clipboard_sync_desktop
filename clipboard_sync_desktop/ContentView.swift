@@ -86,6 +86,7 @@ private struct PairingTab: View {
                     endpoint: viewModel.pairingEndpoint,
                     onPair: onPair
                 )
+                .frame(maxWidth: .infinity)
 
                 HeroCard(
                     status: statusDescriptor,
@@ -93,25 +94,30 @@ private struct PairingTab: View {
                     filteredCount: viewModel.historyStore.entries.count,
                     networkDescription: viewModel.networkSummary.description
                 )
+                .frame(maxWidth: .infinity)
 
-                if !viewModel.syncServer.clients.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Active connections")
-                            .font(.headline)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Active connections")
+                        .font(.headline)
+                    if viewModel.syncServer.clients.isEmpty {
+                        Text("No active connections")
+                            .foregroundStyle(.secondary)
+                    } else {
                         ForEach(viewModel.syncServer.clients) { client in
                             ConnectedDeviceRow(client: client)
                         }
                         .padding(.vertical, 2)
                     }
-                    .padding(20)
-                    .background(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                            .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
-                    )
                 }
+                .padding(20)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
+                )
             }
-            .padding(16)
+            .padding(24)
         }
     }
 }
@@ -125,6 +131,8 @@ private struct HistoryTab: View {
     @Binding var searchQuery: String
     var onTogglePin: (ClipboardEntry) -> Void
     var onDelete: (ClipboardEntry) -> Void
+
+    @State private var showClearConfirm = false
 
     var body: some View {
         NavigationStack {
@@ -167,6 +175,22 @@ private struct HistoryTab: View {
                 }
             }
             .navigationTitle("Clipboard vault")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(role: .destructive) {
+                        showClearConfirm = true
+                    } label: {
+                        Label("Delete all", systemImage: "trash")
+                    }
+                    .disabled(viewModel.historyStore.entries.isEmpty)
+                }
+            }
+            .confirmationDialog("Delete all history?", isPresented: $showClearConfirm) {
+                Button("Delete all", role: .destructive) {
+                    viewModel.deleteAll()
+                }
+                Button("Cancel", role: .cancel) {}
+            }
             .navigationDestination(for: ClipboardEntry.ID.self) { id in
                 if let entry = viewModel.historyStore.entries.first(where: { $0.id == id }) {
                     EntryDetailView(entry: entry)
@@ -691,7 +715,7 @@ private struct PairingSheet: View {
             Text("Pair with your phone")
                 .font(.title2.weight(.semibold))
 
-            if let code = pairingCode, let endpoint {
+            if let code = pairingCode {
                 PairingCodeDisplay(code: code)
 
                 VStack(spacing: 8) {
@@ -699,42 +723,9 @@ private struct PairingSheet: View {
                         .multilineTextAlignment(.center)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-
-                    Button {
+                    Button("Copy code") {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(code.replacingOccurrences(of: "-", with: ""), forType: .string)
-                    } label: {
-                        Label("Copy code", systemImage: "number")
-                    }
-                }
-
-                VStack(spacing: 8) {
-                    Text(endpoint)
-                        .font(.system(.body, design: .monospaced))
-                        .padding(10)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .textBackgroundColor)))
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(endpoint, forType: .string)
-                    } label: {
-                        Label("Copy connection URL", systemImage: "doc.on.doc")
-                    }
-                }
-            } else if let endpoint {
-                VStack(spacing: 12) {
-                    Text("We couldn’t generate a code automatically, but you can copy the secure link below and paste it on your phone.")
-                        .font(.subheadline)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
-                    Text(endpoint)
-                        .font(.system(.body, design: .monospaced))
-                        .padding(10)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .textBackgroundColor)))
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(endpoint, forType: .string)
-                    } label: {
-                        Label("Copy connection URL", systemImage: "doc.on.doc")
                     }
                 }
             } else {

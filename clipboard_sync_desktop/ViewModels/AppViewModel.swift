@@ -75,6 +75,10 @@ final class AppViewModel: ObservableObject {
         historyStore.remove(id: entry.id)
     }
 
+    func deleteAll() {
+        historyStore.clear()
+    }
+
     func togglePin(entry: ClipboardEntry) {
         var updated = entry
         updated.isPinned.toggle()
