@@ -17,54 +17,39 @@ struct ContentView: View {
     private var filteredEntries: [ClipboardEntry] {
         let entries = viewModel.historyStore.entries
         let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return entries
-        }
+        guard !trimmed.isEmpty else { return entries }
         let needle = trimmed.lowercased()
         return entries.filter { entry in
-            entry.preview.lowercased().contains(needle)
-                || entry.deviceName.lowercased().contains(needle)
+            entry.preview.lowercased().contains(needle) || entry.deviceName.lowercased().contains(needle)
         }
     }
 
-    private var pinnedEntries: [ClipboardEntry] {
-        filteredEntries.filter(\.isPinned)
-    }
-
-    private var recentEntries: [ClipboardEntry] {
-        filteredEntries.filter { !$0.isPinned }
-    }
+    private var pinnedEntries: [ClipboardEntry] { filteredEntries.filter(\.isPinned) }
+    private var recentEntries: [ClipboardEntry] { filteredEntries.filter { !$0.isPinned } }
 
     var body: some View {
-        NavigationSplitView {
-            SidebarView(
+        TabView {
+            PairingTab(
+                viewModel: viewModel,
+                isDiscoverable: Binding(
+                    get: { viewModel.isDiscoverable },
+                    set: { viewModel.setDiscoverable($0) }
+                ),
+                onPair: { isPairSheetPresented = true }
+            )
+            .tabItem { Label("Devices", systemImage: "ipad.and.iphone") }
+
+            HistoryTab(
                 viewModel: viewModel,
                 entries: filteredEntries,
                 pinnedEntries: pinnedEntries,
                 recentEntries: recentEntries,
                 selection: $selection,
                 searchQuery: $searchQuery,
-                isDiscoverable: Binding(
-                    get: { viewModel.isDiscoverable },
-                    set: { viewModel.setDiscoverable($0) }
-                ),
-                onPair: { isPairSheetPresented = true },
                 onTogglePin: viewModel.togglePin,
                 onDelete: viewModel.delete
             )
-            .navigationTitle("Clipboard vault")
-        } detail: {
-            if let selection,
-               let entry = viewModel.historyStore.entries.first(where: { $0.id == selection }) {
-                EntryDetailView(entry: entry)
-            } else if viewModel.syncServer.clients.isEmpty {
-                PairingFocusView(
-                    networkSummary: viewModel.networkSummary,
-                    onPair: { isPairSheetPresented = true }
-                )
-            } else {
-                DashboardPlaceholder()
-            }
+            .tabItem { Label("History", systemImage: "clock") }
         }
         .sheet(isPresented: $isPairSheetPresented) {
             PairingSheet(
@@ -73,90 +58,106 @@ struct ContentView: View {
                 networkSummary: viewModel.networkSummary
             )
         }
-        .onAppear {
-            viewModel.start()
-        }
+        .onAppear { viewModel.start() }
     }
 }
 
-private struct SidebarView: View {
+private struct PairingTab: View {
     @ObservedObject var viewModel: AppViewModel
-    let entries: [ClipboardEntry]
-    let pinnedEntries: [ClipboardEntry]
-    let recentEntries: [ClipboardEntry]
-    @Binding var selection: ClipboardEntry.ID?
-    @Binding var searchQuery: String
     @Binding var isDiscoverable: Bool
     var onPair: () -> Void
-    var onTogglePin: (ClipboardEntry) -> Void
-    var onDelete: (ClipboardEntry) -> Void
 
     private var statusDescriptor: StatusDescriptor {
         switch viewModel.syncServer.state {
-        case .stopped:
-            return .init(label: "Stopped", tint: Color(nsColor: .systemGray))
-        case .starting:
-            return .init(label: "Starting...", tint: Color(hex: 0xf59e0b))
+        case .stopped: return .init(label: "Stopped", tint: Color(nsColor: .systemGray))
+        case .starting: return .init(label: "Starting...", tint: Color(hex: 0xf59e0b))
         case .listening:
-            if isDiscoverable {
-                return .init(label: "Discoverable", tint: Color(hex: 0x4ade80))
-            } else {
-                return .init(label: "Listening", tint: Color(hex: 0xfbbf24))
-            }
-        case .failed:
-            return .init(label: "Error", tint: Color(hex: 0xf87171))
+            return isDiscoverable ? .init(label: "Discoverable", tint: Color(hex: 0x4ade80)) : .init(label: "Listening", tint: Color(hex: 0xfbbf24))
+        case .failed: return .init(label: "Error", tint: Color(hex: 0xf87171))
         }
     }
 
-    private var totalEntries: Int {
-        viewModel.historyStore.entries.count
-    }
-
     var body: some View {
-        List(selection: $selection) {
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
                 PairingCard(
                     networkSummary: viewModel.networkSummary,
                     isDiscoverable: $isDiscoverable,
                     endpoint: viewModel.pairingEndpoint,
                     onPair: onPair
                 )
-            }
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
 
-            Section {
                 HeroCard(
                     status: statusDescriptor,
-                    entryCount: totalEntries,
-                    filteredCount: entries.count,
+                    entryCount: viewModel.historyStore.entries.count,
+                    filteredCount: viewModel.historyStore.entries.count,
                     networkDescription: viewModel.networkSummary.description
                 )
-            }
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
 
-            if !viewModel.syncServer.clients.isEmpty {
-                Section("Active connections") {
-                    ForEach(viewModel.syncServer.clients) { client in
-                        ConnectedDeviceRow(client: client)
+                if !viewModel.syncServer.clients.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Active connections")
+                            .font(.headline)
+                        ForEach(viewModel.syncServer.clients) { client in
+                            ConnectedDeviceRow(client: client)
+                        }
+                        .padding(.vertical, 2)
                     }
+                    .padding(20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                            .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
+                    )
                 }
             }
+            .padding(16)
+        }
+    }
+}
 
-            Section {
-                SearchCard(
-                    query: $searchQuery,
-                    totalCount: totalEntries,
-                    filteredCount: entries.count
-                )
-            }
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
+private struct HistoryTab: View {
+    @ObservedObject var viewModel: AppViewModel
+    let entries: [ClipboardEntry]
+    let pinnedEntries: [ClipboardEntry]
+    let recentEntries: [ClipboardEntry]
+    @Binding var selection: ClipboardEntry.ID?
+    @Binding var searchQuery: String
+    var onTogglePin: (ClipboardEntry) -> Void
+    var onDelete: (ClipboardEntry) -> Void
 
-            if !pinnedEntries.isEmpty {
-                Section("Pinned") {
-                    ForEach(pinnedEntries) { entry in
+    var body: some View {
+        NavigationStack {
+            List(selection: $selection) {
+                Section {
+                    SearchCard(
+                        query: $searchQuery,
+                        totalCount: viewModel.historyStore.entries.count,
+                        filteredCount: entries.count
+                    )
+                }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+
+                if !pinnedEntries.isEmpty {
+                    Section("Pinned") {
+                        ForEach(pinnedEntries) { entry in
+                            NavigationLink(value: entry.id) {
+                                EntryRow(entry: entry, onTogglePin: onTogglePin, onDelete: onDelete)
+                            }
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                        }
+                    }
+                }
+
+                Section("Recent") {
+                    if recentEntries.isEmpty {
+                        Text("Copy something to see it here.")
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 12)
+                    }
+                    ForEach(recentEntries) { entry in
                         NavigationLink(value: entry.id) {
                             EntryRow(entry: entry, onTogglePin: onTogglePin, onDelete: onDelete)
                         }
@@ -165,25 +166,17 @@ private struct SidebarView: View {
                     }
                 }
             }
-
-            Section("Recent") {
-                if recentEntries.isEmpty {
-                    Text("Copy something to see it here.")
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 12)
-                }
-                ForEach(recentEntries) { entry in
-                    NavigationLink(value: entry.id) {
-                        EntryRow(entry: entry, onTogglePin: onTogglePin, onDelete: onDelete)
-                    }
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+            .navigationTitle("Clipboard vault")
+            .navigationDestination(for: ClipboardEntry.ID.self) { id in
+                if let entry = viewModel.historyStore.entries.first(where: { $0.id == id }) {
+                    EntryDetailView(entry: entry)
+                } else {
+                    Text("Item not found").foregroundStyle(.secondary)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Color(nsColor: .windowBackgroundColor))
         }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
-        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
