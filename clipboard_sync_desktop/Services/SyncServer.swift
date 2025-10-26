@@ -19,6 +19,8 @@ final class SyncServer: ObservableObject {
 
     @Published private(set) var state: ServerState = .stopped
     @Published private(set) var clients: [SyncClientInfo] = []
+    // Notify the app of incoming clipboard events from clients
+    var onClipboardEvent: (([String: Any]) -> Void)?
 
     private var listener: NWListener?
     private var queue = DispatchQueue(label: "com.clipboard.sync.server")
@@ -92,9 +94,10 @@ final class SyncServer: ObservableObject {
         clients.removeAll()
     }
 
-    func broadcast(json: Any) {
+    func broadcast(json: Any, excluding excludedId: UUID? = nil) {
         guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
-        for client in cancellables.values {
+        for (id, client) in cancellables {
+            if let excluded = excludedId, id == excluded { continue }
             send(data: data, to: client)
         }
     }
@@ -155,18 +158,29 @@ final class SyncServer: ObservableObject {
             return
         }
 
-        if let type = json["type"] as? String, type == "handshake" {
-            let deviceName = json["payload"] as? [String: Any]
-            if let name = deviceName?["deviceName"] as? String, let index = clients.firstIndex(where: { $0.id == clientId }) {
+        guard let type = json["type"] as? String else { return }
+        switch type {
+        case "handshake":
+            let payload = json["payload"] as? [String: Any]
+            if let name = payload?["deviceName"] as? String, let index = clients.firstIndex(where: { $0.id == clientId }) {
                 clients[index].deviceName = name
             }
+        case "clipboard-event":
+            // Re-broadcast the event to other clients
+            broadcast(json: json, excluding: clientId)
+            if let payload = json["payload"] as? [String: Any] {
+                onClipboardEvent?(payload)
+            }
+        default:
+            break
         }
-
-        // Additional routing will be added when Android client is ready to communicate.
     }
 
     private func send(data: Data, to connection: NWConnection) {
-        connection.send(content: data, completion: .contentProcessed { error in
+        // Ensure WebSocket frames are sent as text, not binary.
+        let wsMetadata = NWProtocolWebSocket.Metadata(opcode: .text)
+        let context = NWConnection.ContentContext(identifier: "text", metadata: [wsMetadata])
+        connection.send(content: data, contentContext: context, isComplete: true, completion: .contentProcessed { error in
             if let error {
                 print("[server] send error: \(error)")
             }

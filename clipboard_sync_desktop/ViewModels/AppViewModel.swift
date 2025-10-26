@@ -57,6 +57,11 @@ final class AppViewModel: ObservableObject {
         watcher.start()
         // Use a stable port so previously saved endpoints remain valid.
         syncServer.start(on: 51858, discoverable: isDiscoverable)
+        syncServer.onClipboardEvent = { [weak self] payload in
+            Task { @MainActor [weak self] in
+                self?.ingestRemoteClipboardEvent(payload: payload)
+            }
+        }
         isWatching = true
     }
 
@@ -136,33 +141,83 @@ final class AppViewModel: ObservableObject {
             "syncState": entry.syncState.rawValue,
         ]
 
-        if let text = entry.text {
-            entryPayload["text"] = text
-        }
-
-        if let html = entry.html {
-            entryPayload["html"] = html
-        }
-
+        if let text = entry.text { entryPayload["text"] = text }
+        if let html = entry.html { entryPayload["html"] = html }
         if let imageData = entry.imageData {
             let base64 = imageData.base64EncodedString()
             entryPayload["imageUri"] = "data:image/png;base64,\(base64)"
         }
+        if let syncedAt = entry.syncedAt { entryPayload["syncedAt"] = syncedAt.timeIntervalSince1970 * 1000 }
+        if let metadata = entry.metadata { entryPayload["metadata"] = metadata }
 
-        if let syncedAt = entry.syncedAt {
-            entryPayload["syncedAt"] = syncedAt.timeIntervalSince1970 * 1000
-        }
-
-        if let metadata = entry.metadata {
-            entryPayload["metadata"] = metadata
-        }
+        let event: [String: Any] = [
+            "id": entry.id.uuidString,
+            "eventType": "added",
+            "payload": entryPayload,
+        ]
 
         let envelope: [String: Any] = [
             "type": "clipboard-event",
             "timestamp": Date().timeIntervalSince1970 * 1000,
-            "payload": entryPayload,
+            "payload": event,
         ]
 
         syncServer.broadcast(json: envelope)
+    }
+
+    private func ingestRemoteClipboardEvent(payload: [String: Any]) {
+        guard let eventType = payload["eventType"] as? String, eventType == "added",
+              let entryDict = payload["payload"] as? [String: Any] else {
+            return
+        }
+
+        // Map JSON to ClipboardEntry
+        let id = (entryDict["id"] as? String).flatMap(UUID.init(uuidString:)) ?? UUID()
+        let contentType = ClipboardContentType(rawValue: (entryDict["contentType"] as? String) ?? "text") ?? .text
+        let text = entryDict["text"] as? String
+        let html = entryDict["html"] as? String
+        var imageData: Data? = nil
+        if let imageUri = entryDict["imageUri"] as? String, let range = imageUri.range(of: ",") {
+            let base64 = String(imageUri[range.upperBound...])
+            imageData = Data(base64Encoded: base64)
+        }
+        let createdAtMs = (entryDict["createdAt"] as? Double) ?? (entryDict["createdAt"] as? NSNumber)?.doubleValue ?? Date().timeIntervalSince1970 * 1000
+        let updatedAtMs = (entryDict["updatedAt"] as? Double) ?? (entryDict["updatedAt"] as? NSNumber)?.doubleValue ?? createdAtMs
+        let createdAt = Date(timeIntervalSince1970: createdAtMs / 1000)
+        let updatedAt = Date(timeIntervalSince1970: updatedAtMs / 1000)
+        let deviceId = (entryDict["deviceId"] as? String) ?? "remote"
+        let deviceName = (entryDict["deviceName"] as? String) ?? "Remote device"
+        let isPinned = (entryDict["isPinned"] as? Bool) ?? false
+        let syncState = ClipboardSyncState(rawValue: (entryDict["syncState"] as? String) ?? "pending") ?? .pending
+        var syncedAt: Date? = nil
+        if let syncedAtMs = (entryDict["syncedAt"] as? Double) ?? (entryDict["syncedAt"] as? NSNumber)?.doubleValue {
+            syncedAt = Date(timeIntervalSince1970: syncedAtMs / 1000)
+        }
+        var metadata: [String: String]? = nil
+        if let md = entryDict["metadata"] as? [String: Any] {
+            var mapped: [String: String] = [:]
+            for (k, v) in md { mapped[k] = String(describing: v) }
+            metadata = mapped
+        }
+
+        let entry = ClipboardEntry(
+            id: id,
+            contentType: contentType,
+            text: text,
+            html: html,
+            imageData: imageData,
+            fileURL: nil,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            deviceId: deviceId,
+            deviceName: deviceName,
+            origin: .remote,
+            isPinned: isPinned,
+            syncState: syncState,
+            syncedAt: syncedAt,
+            metadata: metadata
+        )
+
+        historyStore.upsert(entry)
     }
 }
