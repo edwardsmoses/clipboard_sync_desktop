@@ -66,6 +66,14 @@ private struct PairingTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                StatusStrip(
+                    status: statusDescriptor,
+                    entryCount: viewModel.historyStore.entries.count,
+                    networkDescription: viewModel.networkSummary.description,
+                    clients: viewModel.syncServer.clients
+                )
+                .frame(maxWidth: .infinity)
+
                 PairingCard(
                     networkSummary: viewModel.networkSummary,
                     isDiscoverable: $isDiscoverable,
@@ -74,34 +82,7 @@ private struct PairingTab: View {
                 )
                 .frame(maxWidth: .infinity)
 
-                HeroCard(
-                    status: statusDescriptor,
-                    entryCount: viewModel.historyStore.entries.count,
-                    filteredCount: viewModel.historyStore.entries.count,
-                    networkDescription: viewModel.networkSummary.description
-                )
-                .frame(maxWidth: .infinity)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Active connections")
-                        .font(.headline)
-                    if viewModel.syncServer.clients.isEmpty {
-                        Text("No active connections")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(viewModel.syncServer.clients) { client in
-                            ConnectedDeviceRow(client: client)
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-                .padding(20)
-                .frame(maxWidth: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                        .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
-                )
+                
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("ClipBridge")
@@ -114,6 +95,44 @@ private struct PairingTab: View {
             }
             .padding(24)
         }
+    }
+}
+
+private struct StatusStrip: View {
+    let status: StatusDescriptor
+    let entryCount: Int
+    let networkDescription: String
+    let clients: [SyncClientInfo]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                StatusChip(label: status.label, tint: status.tint, contentColor: .white)
+                StatusChip(label: "\(entryCount) saved", tint: Color.gray.opacity(0.15), contentColor: .secondary)
+                StatusChip(label: networkDescription, tint: Color.gray.opacity(0.15), contentColor: .secondary)
+                if !clients.isEmpty {
+                    StatusChip(label: "\(clients.count) connected", tint: Color.gray.opacity(0.15), contentColor: .secondary)
+                }
+                Spacer()
+            }
+
+            if !clients.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(clients) { client in
+                            StatusChip(label: client.deviceName ?? "Unnamed device", tint: Color.gray.opacity(0.12), contentColor: .secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 4)
+        )
     }
 }
 
