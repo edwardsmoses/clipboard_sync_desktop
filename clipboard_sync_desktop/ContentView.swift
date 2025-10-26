@@ -103,23 +103,14 @@ private struct PairingTab: View {
                         .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
                 )
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("About")
-                        .font(.headline)
+                VStack(alignment: .leading, spacing: 4) {
                     Text("ClipBridge")
-                        .font(.title3.bold())
-                    Text("Built by Edwards Moses")
+                        .font(.headline)
+                    Text("Built by Edwards Moses · edwardsmoses.com")
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    Text("edwardsmoses.com")
-                        .foregroundStyle(Color(hex: 0x2563eb))
                 }
-                .padding(20)
-                .frame(maxWidth: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                        .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
-                )
+                .padding(.horizontal, 4)
             }
             .padding(24)
         }
