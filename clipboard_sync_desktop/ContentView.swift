@@ -57,6 +57,11 @@ struct ContentView: View {
             if let selection,
                let entry = viewModel.historyStore.entries.first(where: { $0.id == selection }) {
                 EntryDetailView(entry: entry)
+            } else if viewModel.syncServer.clients.isEmpty {
+                PairingFocusView(
+                    networkSummary: viewModel.networkSummary,
+                    onPair: { isPairSheetPresented = true }
+                )
             } else {
                 DashboardPlaceholder()
             }
@@ -110,22 +115,22 @@ private struct SidebarView: View {
     var body: some View {
         List(selection: $selection) {
             Section {
-                HeroCard(
-                    status: statusDescriptor,
-                    entryCount: totalEntries,
-                    filteredCount: entries.count,
-                    networkDescription: viewModel.networkSummary.description
+                PairingCard(
+                    networkSummary: viewModel.networkSummary,
+                    isDiscoverable: $isDiscoverable,
+                    endpoint: viewModel.pairingEndpoint,
+                    onPair: onPair
                 )
             }
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
 
             Section {
-                PairingCard(
-                    networkSummary: viewModel.networkSummary,
-                    isDiscoverable: $isDiscoverable,
-                    endpoint: viewModel.pairingEndpoint,
-                    onPair: onPair
+                HeroCard(
+                    status: statusDescriptor,
+                    entryCount: totalEntries,
+                    filteredCount: entries.count,
+                    networkDescription: viewModel.networkSummary.description
                 )
             }
             .listRowSeparator(.hidden)
@@ -618,6 +623,45 @@ private struct ConnectedDeviceRow: View {
             }
         }
         .padding(.vertical, 6)
+    }
+}
+
+private struct PairingFocusView: View {
+    let networkSummary: NetworkSummary
+    var onPair: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "iphone.and.arrow.forward")
+                .font(.system(size: 42, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x2563eb))
+
+            Text("Pair your phone")
+                .font(.title3.bold())
+
+            Text("Keep this window open, then tap “Pair new device” on your phone and enter the code.")
+                .font(.body)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 360)
+
+            Button(action: onPair) {
+                Label("Show pairing code", systemImage: "number.square")
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color(hex: 0x2563eb))
+
+            HStack(spacing: 8) {
+                Image(systemName: networkSummary.isConnected ? "wifi" : "wifi.slash")
+                    .foregroundStyle(networkSummary.isConnected ? Color.green : Color.red)
+                Text(networkSummary.description)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
