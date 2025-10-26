@@ -165,6 +165,20 @@ final class SyncServer: ObservableObject {
             if let name = payload?["deviceName"] as? String, let index = clients.firstIndex(where: { $0.id == clientId }) {
                 clients[index].deviceName = name
             }
+            // Reply to this client with server info so it can show a friendly name
+            let serverName = Host.current().localizedName ?? "Mac"
+            let ack: [String: Any] = [
+                "type": "ack",
+                "timestamp": Date().timeIntervalSince1970 * 1000,
+                "payload": [
+                    "serverName": serverName,
+                    "clients": clients.map { [
+                        "id": $0.id.uuidString,
+                        "deviceName": $0.deviceName ?? "Unnamed device",
+                    ] },
+                ],
+            ]
+            send(json: ack, to: clientId)
         case "clipboard-event":
             // Re-broadcast the event to other clients
             broadcast(json: json, excluding: clientId)
@@ -174,6 +188,12 @@ final class SyncServer: ObservableObject {
         default:
             break
         }
+    }
+
+    private func send(json: Any, to clientId: UUID) {
+        guard let connection = cancellables[clientId],
+              let data = try? JSONSerialization.data(withJSONObject: json) else { return }
+        send(data: data, to: connection)
     }
 
     private func send(data: Data, to connection: NWConnection) {

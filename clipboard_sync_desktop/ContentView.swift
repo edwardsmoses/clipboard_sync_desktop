@@ -14,18 +14,7 @@ struct ContentView: View {
     @State private var searchQuery = ""
     @State private var isPairSheetPresented = false
 
-    private var filteredEntries: [ClipboardEntry] {
-        let entries = viewModel.historyStore.entries
-        let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return entries }
-        let needle = trimmed.lowercased()
-        return entries.filter { entry in
-            entry.preview.lowercased().contains(needle) || entry.deviceName.lowercased().contains(needle)
-        }
-    }
-
-    private var pinnedEntries: [ClipboardEntry] { filteredEntries.filter(\.isPinned) }
-    private var recentEntries: [ClipboardEntry] { filteredEntries.filter { !$0.isPinned } }
+    // History filtering now lives inside HistoryTab so the list reacts immediately to store changes.
 
     var body: some View {
         TabView {
@@ -41,9 +30,6 @@ struct ContentView: View {
 
             HistoryTab(
                 viewModel: viewModel,
-                entries: filteredEntries,
-                pinnedEntries: pinnedEntries,
-                recentEntries: recentEntries,
                 selection: $selection,
                 searchQuery: $searchQuery,
                 onTogglePin: viewModel.togglePin,
@@ -116,6 +102,24 @@ private struct PairingTab: View {
                         .fill(Color(nsColor: .controlBackgroundColor))
                         .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
                 )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("About")
+                        .font(.headline)
+                    Text("ClipBridge")
+                        .font(.title3.bold())
+                    Text("Built by Edwards Moses")
+                        .foregroundStyle(.secondary)
+                    Text("edwardsmoses.com")
+                        .foregroundStyle(Color(hex: 0x2563eb))
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
+                )
             }
             .padding(24)
         }
@@ -124,9 +128,6 @@ private struct PairingTab: View {
 
 private struct HistoryTab: View {
     @ObservedObject var viewModel: AppViewModel
-    let entries: [ClipboardEntry]
-    let pinnedEntries: [ClipboardEntry]
-    let recentEntries: [ClipboardEntry]
     @Binding var selection: ClipboardEntry.ID?
     @Binding var searchQuery: String
     var onTogglePin: (ClipboardEntry) -> Void
@@ -134,14 +135,24 @@ private struct HistoryTab: View {
 
     @State private var showClearConfirm = false
 
+    private var allEntries: [ClipboardEntry] { viewModel.historyStore.entries }
+    private var filteredEntries: [ClipboardEntry] {
+        let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return allEntries }
+        let needle = trimmed.lowercased()
+        return allEntries.filter { $0.preview.lowercased().contains(needle) || $0.deviceName.lowercased().contains(needle) }
+    }
+    private var pinnedEntries: [ClipboardEntry] { filteredEntries.filter(\.isPinned) }
+    private var recentEntries: [ClipboardEntry] { filteredEntries.filter { !$0.isPinned } }
+
     var body: some View {
         NavigationStack {
             List(selection: $selection) {
                 Section {
                     SearchCard(
                         query: $searchQuery,
-                        totalCount: viewModel.historyStore.entries.count,
-                        filteredCount: entries.count
+                        totalCount: allEntries.count,
+                        filteredCount: filteredEntries.count
                     )
                 }
                 .listRowSeparator(.hidden)
@@ -182,7 +193,7 @@ private struct HistoryTab: View {
                     } label: {
                         Label("Delete all", systemImage: "trash")
                     }
-                    .disabled(viewModel.historyStore.entries.isEmpty)
+                    .disabled(allEntries.isEmpty)
                 }
             }
             .confirmationDialog("Delete all history?", isPresented: $showClearConfirm) {
