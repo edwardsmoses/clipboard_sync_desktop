@@ -356,15 +356,15 @@ private struct EntryRow: View {
     var onDelete: (ClipboardEntry) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
                 IconBadge(contentType: entry.contentType)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.deviceName)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                     Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption)
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -378,17 +378,17 @@ private struct EntryRow: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                 }
                 .fixedSize()
             }
 
             Text(entry.preview.isEmpty ? "No preview available" : entry.preview)
-                .font(.system(size: 15))
+                .font(.system(size: 14))
                 .lineLimit(3)
 
             HStack(spacing: 8) {
-                StatusTag(text: entry.isPinned ? "Pinned" : "Pin", tint: entry.isPinned ? Color(hex: 0xfbbf24) : Color(hex: 0xe0e7ff), contentColor: entry.isPinned ? .black : Color(hex: 0x1d4ed8))
+                StatusTag(text: entry.isPinned ? "Pinned" : "Pin", tint: Color.gray.opacity(0.15), contentColor: .secondary)
                     .onTapGesture {
                         onTogglePin(entry)
                     }
@@ -545,10 +545,10 @@ private struct IconBadge: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(iconColor.opacity(0.18))
-                .frame(width: 40, height: 40)
+                .fill(iconColor.opacity(0.12))
+                .frame(width: 28, height: 28)
             Image(systemName: iconName)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(iconColor)
         }
     }
@@ -591,10 +591,10 @@ private struct StatusTag: View {
 
     var body: some View {
         Text(text)
-            .font(.caption)
-            .fontWeight(.semibold)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .font(.caption2)
+            .fontWeight(.medium)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
             .background(
                 Capsule()
                     .fill(tint)
