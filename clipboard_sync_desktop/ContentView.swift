@@ -55,11 +55,14 @@ private struct PairingTab: View {
 
     private var statusDescriptor: StatusDescriptor {
         switch viewModel.syncServer.state {
-        case .stopped: return .init(label: "Stopped", tint: Color(nsColor: .systemGray))
-        case .starting: return .init(label: "Starting...", tint: Color(hex: 0xf59e0b))
-        case .listening:
-            return isDiscoverable ? .init(label: "Discoverable", tint: Color(hex: 0x4ade80)) : .init(label: "Listening", tint: Color(hex: 0xfbbf24))
-        case .failed: return .init(label: "Error", tint: Color(hex: 0xf87171))
+        case .stopped:
+            return .init(label: "Stopped", tint: Color(nsColor: .systemGray))
+        case .connecting:
+            return .init(label: "Connecting…", tint: Color(hex: 0xf59e0b))
+        case .connected:
+            return isDiscoverable ? .init(label: "Discoverable", tint: Color(hex: 0x4ade80)) : .init(label: "Hidden", tint: Color(hex: 0xfbbf24))
+        case .failed:
+            return .init(label: "Error", tint: Color(hex: 0xf87171))
         }
     }
 
@@ -120,7 +123,7 @@ private struct StatusStrip: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(clients) { client in
-                            StatusChip(label: client.deviceName ?? "Unnamed device", tint: Color.gray.opacity(0.12), contentColor: .secondary)
+                            StatusChip(label: client.deviceName, tint: Color.gray.opacity(0.12), contentColor: .secondary)
                         }
                     }
                     .padding(.vertical, 2)
@@ -281,15 +284,11 @@ private struct PairingCard: View {
                 Label(networkSummary.description, systemImage: networkSummary.isConnected ? "wifi" : "wifi.slash")
                     .font(.subheadline)
                     .foregroundStyle(networkSummary.isConnected ? Color(hex: 0x2563eb) : Color.red)
-                if let address = networkSummary.localAddress, networkSummary.isConnected {
-                    Text("Local address \(address)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if !networkSummary.isConnected {
-                    Text("Connect this Mac and your phone to the same network to begin pairing.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text(networkSummary.isConnected
+                    ? "Secure relay codes route through bridge.edwardsmoses.com so phones can pair from anywhere."
+                    : "Connect this Mac to the internet to mint a new pairing code.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Toggle(isOn: isDiscoverable) {
@@ -653,7 +652,7 @@ private struct ConnectedDeviceRow: View {
             Image(systemName: "iphone")
                 .foregroundStyle(Color(hex: 0x2563eb))
             VStack(alignment: .leading) {
-                Text(client.deviceName ?? "Unnamed device")
+                Text(client.deviceName)
                     .font(.subheadline)
                 Text("Live connection")
                     .font(.caption)
@@ -677,7 +676,7 @@ private struct PairingFocusView: View {
             Text("Pair your phone")
                 .font(.title3.bold())
 
-            Text("Keep this window open, then tap “Pair new device” on your phone and enter the code.")
+            Text("Keep this window open, then tap “Pair new device” on your phone to join via the secure relay.")
                 .font(.body)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -757,7 +756,7 @@ private struct PairingSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label(networkSummary.description, systemImage: networkSummary.isConnected ? "wifi" : "wifi.slash")
                     .foregroundStyle(networkSummary.isConnected ? Color.green : Color.red)
-                Text("Make sure your phone is on the same network, then choose “Pair new device” in Clipboard Sync and enter the code above.")
+                Text("Open Clipboard Sync on Android, choose “Pair new device,” and enter the code. The secure relay handles the rest — any network works.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

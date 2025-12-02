@@ -4,7 +4,7 @@ import Foundation
 @MainActor
 final class AppViewModel: ObservableObject {
     @Published private(set) var historyStore = ClipboardHistoryStore()
-    @Published private(set) var syncServer = SyncServer()
+    @Published private(set) var syncServer: SyncServer
     @Published private(set) var networkSummary: NetworkSummary = .disconnected
     @Published var isWatching = false
     @Published var isDiscoverable: Bool
@@ -25,6 +25,7 @@ final class AppViewModel: ObservableObject {
             deviceId = newId
         }
         deviceName = Host.current().localizedName ?? "Mac"
+        syncServer = SyncServer(deviceId: deviceId, deviceName: deviceName)
 
         if defaults.object(forKey: "settings.discoverable") == nil {
             defaults.set(true, forKey: "settings.discoverable")
@@ -54,9 +55,8 @@ final class AppViewModel: ObservableObject {
 
     func start() {
         guard !isWatching else { return }
+        syncServer.start(discoverable: isDiscoverable)
         watcher.start()
-        // Use a stable port so previously saved endpoints remain valid.
-        syncServer.start(on: 51858, discoverable: isDiscoverable)
         syncServer.onClipboardEvent = { [weak self] payload in
             Task { @MainActor [weak self] in
                 self?.ingestRemoteClipboardEvent(payload: payload)
@@ -93,20 +93,11 @@ final class AppViewModel: ObservableObject {
     }
 
     var pairingEndpoint: String? {
-        guard case let .listening(port) = syncServer.state else { return nil }
-        if let address = networkSummary.localAddress {
-            return "ws://\(address):\(port)"
-        }
-        let host = ProcessInfo.processInfo.hostName
-        return "ws://\(host):\(port)"
+        syncServer.clientEndpoint?.absoluteString
     }
 
     var pairingCode: String? {
-        guard case let .listening(port) = syncServer.state,
-              let address = networkSummary.localAddress else {
-            return nil
-        }
-        return PairingCode.generate(address: address, port: port)
+        syncServer.pairingCode
     }
 
     private func ingest(snapshot: PasteboardSnapshot) async {

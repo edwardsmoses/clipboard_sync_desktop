@@ -1,187 +1,210 @@
 import Combine
 import Foundation
-import Network
 
-struct SyncClientInfo: Identifiable {
-    let id: UUID
-    let connection: NWConnection
-    var deviceName: String?
+struct SyncClientInfo: Identifiable, Equatable {
+    let id: String
+    var deviceName: String
+}
+
+private struct RelaySession: Decodable {
+    let token: String
+    let hostWebsocketUrl: URL
+    let clientWebsocketUrl: URL
+    let expiresIn: TimeInterval
 }
 
 @MainActor
 final class SyncServer: ObservableObject {
-    enum ServerState {
+    enum ServerState: Equatable {
         case stopped
-        case starting
-        case listening(port: UInt16)
-        case failed(Error)
+        case connecting
+        case connected(token: String)
+        case failed(String)
     }
 
     @Published private(set) var state: ServerState = .stopped
     @Published private(set) var clients: [SyncClientInfo] = []
-    // Notify the app of incoming clipboard events from clients
+
     var onClipboardEvent: (([String: Any]) -> Void)?
 
-    private var listener: NWListener?
-    private var queue = DispatchQueue(label: "com.clipboard.sync.server")
-    private var cancellables: [UUID: NWConnection] = [:]
+    private let deviceId: String
+    private let deviceName: String
+
+    private var session: RelaySession?
+    private var webSocketTask: URLSessionWebSocketTask?
+    private let urlSession: URLSession
+    private var reconnectTask: Task<Void, Never>?
     private var isDiscoverable = true
-    private let serviceName = "Clipboard Sync"
+    private var shouldRun = false
 
-    func start(on port: UInt16 = 0, discoverable: Bool = true) {
-        guard listener == nil else { return }
-        state = .starting
+    init(deviceId: String, deviceName: String) {
+        self.deviceId = deviceId
+        self.deviceName = deviceName
+        let configuration = URLSessionConfiguration.default
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForResource = 120
+        configuration.timeoutIntervalForRequest = 120
+        self.urlSession = URLSession(configuration: configuration)
+    }
+
+    @MainActor deinit {
+        stop()
+    }
+
+    func start(discoverable: Bool) {
+        guard !shouldRun else { return }
+        shouldRun = true
         isDiscoverable = discoverable
-
-        do {
-            let parameters = NWParameters.tcp
-            let websocketOptions = NWProtocolWebSocket.Options()
-            websocketOptions.autoReplyPing = true
-            parameters.defaultProtocolStack.applicationProtocols.insert(websocketOptions, at: 0)
-
-            let nwPort = port == 0 ? NWEndpoint.Port.any : NWEndpoint.Port(rawValue: port)!
-            let listener = try NWListener(using: parameters, on: nwPort)
-            if discoverable {
-                listener.service = NWListener.Service(name: serviceName, type: "_clipboardsync._tcp")
-            } else {
-                listener.service = nil
-            }
-
-            listener.newConnectionHandler = { [weak self] connection in
-                Task { @MainActor [weak self] in
-                    self?.handleNewConnection(connection)
-                }
-            }
-
-            listener.stateUpdateHandler = { [weak self] state in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    switch state {
-                    case .ready:
-                        if let port = listener.port?.rawValue {
-                            self.state = .listening(port: port)
-                        }
-                    case .failed(let error):
-                        // Preserve failure state so the UI can surface it.
-                        self.state = .failed(error)
-                        self.cleanupConnections()
-                    default:
-                        break
-                    }
-                }
-            }
-
-            listener.start(queue: queue)
-            self.listener = listener
-        } catch {
-            state = .failed(error)
+        state = .connecting
+        Task {
+            await establishSession()
         }
     }
 
     func stop() {
-        cleanupConnections()
-        state = .stopped
-        isDiscoverable = true
-    }
-
-    private func cleanupConnections() {
-        listener?.cancel()
-        listener = nil
-        for connection in cancellables.values {
-            connection.cancel()
-        }
-        cancellables.removeAll()
+        shouldRun = false
+        reconnectTask?.cancel()
+        reconnectTask = nil
         clients.removeAll()
-    }
-
-    func broadcast(json: Any, excluding excludedId: UUID? = nil) {
-        guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
-        for (id, client) in cancellables {
-            if let excluded = excludedId, id == excluded { continue }
-            send(data: data, to: client)
-        }
+        session = nil
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        webSocketTask = nil
+        state = .stopped
     }
 
     func updateDiscoverability(_ newValue: Bool) {
         guard isDiscoverable != newValue else { return }
         isDiscoverable = newValue
-        if let listener {
-            listener.service = newValue ? NWListener.Service(name: serviceName, type: "_clipboardsync._tcp") : nil
-        }
+        sendHandshake()
     }
 
-    private func handleNewConnection(_ connection: NWConnection) {
-        let id = UUID()
-        let client = SyncClientInfo(id: id, connection: connection, deviceName: nil)
-        clients.append(client)
-        cancellables[id] = connection
-
-        connection.stateUpdateHandler = { [weak self] state in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                switch state {
-                case .ready:
-                    self.receive(on: connection, clientId: id)
-                case .failed, .cancelled:
-                    self.removeClient(id: id)
-                default:
-                    break
-                }
-            }
-        }
-
-        connection.start(queue: queue)
-    }
-
-    private func receive(on connection: NWConnection, clientId: UUID) {
-        connection.receiveMessage { [weak self] data, _, _, error in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if let error {
-                    print("[server] receive error: \(error)")
-                    self.removeClient(id: clientId)
-                    return
-                }
-
-                if let data {
-                    self.handleMessage(data, clientId: clientId)
-                }
-
-                self.receive(on: connection, clientId: clientId)
-            }
-        }
-    }
-
-    private func handleMessage(_ data: Data, clientId: UUID) {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            print("[server] invalid json")
+    func broadcast(json: Any) {
+        guard let socket = webSocketTask,
+              let data = try? JSONSerialization.data(withJSONObject: json),
+              let text = String(data: data, encoding: .utf8) else {
             return
         }
 
-        guard let type = json["type"] as? String else { return }
-        switch type {
-        case "handshake":
-            let payload = json["payload"] as? [String: Any]
-            if let name = payload?["deviceName"] as? String, let index = clients.firstIndex(where: { $0.id == clientId }) {
-                clients[index].deviceName = name
+        socket.send(.string(text)) { [weak self] error in
+            if let error {
+                Task { @MainActor [weak self] in
+                    self?.handleSocketFailure(error)
+                }
             }
-            // Reply to this client with server info so it can show a friendly name
-            let serverName = Host.current().localizedName ?? "Mac"
-            let ack: [String: Any] = [
-                "type": "ack",
-                "timestamp": Date().timeIntervalSince1970 * 1000,
-                "payload": [
-                    "serverName": serverName,
-                    "clients": clients.map { [
-                        "id": $0.id.uuidString,
-                        "deviceName": $0.deviceName ?? "Unnamed device",
-                    ] },
-                ],
-            ]
-            send(json: ack, to: clientId)
+        }
+    }
+
+    var clientEndpoint: URL? {
+        session?.clientWebsocketUrl
+    }
+
+    var pairingCode: String? {
+        guard case let .connected(token) = state else { return nil }
+        return PairingCode.displayString(for: token)
+    }
+
+    private func establishSession() async {
+        do {
+            let session = try await createSession()
+            guard shouldRun else { return }
+            self.session = session
+            state = .connected(token: session.token)
+            connectWebSocket(at: session.hostWebsocketUrl)
+        } catch {
+            state = .failed(error.localizedDescription)
+            scheduleReconnect()
+        }
+    }
+
+    private func createSession() async throws -> RelaySession {
+        var request = URLRequest(url: RelayConfiguration.apiBaseURL.appendingPathComponent("v1/sessions"))
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? "No response body"
+            throw RelayError.sessionCreationFailed("Relay rejected request: \(body)")
+        }
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(RelaySession.self, from: data)
+    }
+
+    private func connectWebSocket(at url: URL) {
+        let task = urlSession.webSocketTask(with: url)
+        webSocketTask = task
+        task.resume()
+        listen()
+        sendHandshake()
+    }
+
+    private func listen() {
+        webSocketTask?.receive { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .failure(let error):
+                Task { @MainActor in
+                    self.handleSocketFailure(error)
+                }
+            case .success(let message):
+                Task { @MainActor in
+                    self.handle(message)
+                }
+                self.listen()
+            }
+        }
+    }
+
+    private func sendHandshake() {
+        guard session != nil else { return }
+        let payload: [String: Any] = [
+            "deviceId": deviceId,
+            "deviceName": deviceName,
+            "discoverable": isDiscoverable
+        ]
+        let envelope: [String: Any] = [
+            "type": "handshake",
+            "timestamp": Date().timeIntervalSince1970 * 1000,
+            "payload": payload
+        ]
+        broadcast(json: envelope)
+    }
+
+    private func handle(_ message: URLSessionWebSocketTask.Message) {
+        switch message {
+        case .string(let text):
+            handle(text: text)
+        case .data(let data):
+            if let text = String(data: data, encoding: .utf8) {
+                handle(text: text)
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    private func handle(text: String) {
+        guard let data = text.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = json["type"] as? String else {
+            return
+        }
+
+        switch type {
+        case "ack":
+            if let payload = json["payload"] as? [String: Any],
+               let rows = payload["clients"] as? [[String: Any]] {
+                clients = rows.map { row in
+                    let id = row["id"] as? String ?? UUID().uuidString
+                    let name = row["deviceName"] as? String ?? "Device"
+                    return SyncClientInfo(id: id, deviceName: name)
+                }
+            }
         case "clipboard-event":
-            // Re-broadcast the event to other clients
-            broadcast(json: json, excluding: clientId)
             if let payload = json["payload"] as? [String: Any] {
                 onClipboardEvent?(payload)
             }
@@ -190,26 +213,41 @@ final class SyncServer: ObservableObject {
         }
     }
 
-    private func send(json: Any, to clientId: UUID) {
-        guard let connection = cancellables[clientId],
-              let data = try? JSONSerialization.data(withJSONObject: json) else { return }
-        send(data: data, to: connection)
+    private func handleSocketFailure(_ error: Error) {
+        clients.removeAll()
+        session = nil
+        webSocketTask?.cancel()
+        webSocketTask = nil
+
+        guard shouldRun else {
+            state = .stopped
+            return
+        }
+
+        state = .failed(error.localizedDescription)
+        scheduleReconnect()
     }
 
-    private func send(data: Data, to connection: NWConnection) {
-        // Ensure WebSocket frames are sent as text, not binary.
-        let wsMetadata = NWProtocolWebSocket.Metadata(opcode: .text)
-        let context = NWConnection.ContentContext(identifier: "text", metadata: [wsMetadata])
-        connection.send(content: data, contentContext: context, isComplete: true, completion: .contentProcessed { error in
-            if let error {
-                print("[server] send error: \(error)")
+    private func scheduleReconnect() {
+        reconnectTask?.cancel()
+        guard shouldRun else { return }
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            await MainActor.run {
+                self?.state = .connecting
             }
-        })
+            await self?.establishSession()
+        }
     }
+}
 
-    private func removeClient(id: UUID) {
-        cancellables[id]?.cancel()
-        cancellables.removeValue(forKey: id)
-        clients.removeAll { $0.id == id }
+enum RelayError: Error, LocalizedError {
+    case sessionCreationFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .sessionCreationFailed(let reason):
+            return reason
+        }
     }
 }
