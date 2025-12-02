@@ -66,6 +66,14 @@ private struct PairingTab: View {
         }
     }
 
+    private var appVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+        if let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String, !build.isEmpty {
+            return "v\(version) (\(build))"
+        }
+        return "v\(version)"
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -85,11 +93,22 @@ private struct PairingTab: View {
                 )
                 .frame(maxWidth: .infinity)
 
-                
+
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("ClipBridge")
-                        .font(.headline)
+                    HStack(spacing: 8) {
+                        Text("ClipBridge")
+                            .font(.headline)
+                        Text(appVersion)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(Color(nsColor: .controlBackgroundColor))
+                            )
+                    }
                     Text("Built by Edwards Moses · edwardsmoses.com")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
