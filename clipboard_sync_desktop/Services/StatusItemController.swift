@@ -45,9 +45,10 @@ final class StatusItemController: NSObject {
                 if let button = item.button {
                     button.image = NSImage(
                         systemSymbolName: "doc.on.clipboard.fill",
-                        accessibilityDescription: "Clipboard Sync"
+                        accessibilityDescription: "ClipBridge"
                     )
                     button.image?.isTemplate = true
+                    button.toolTip = "ClipBridge"
                 }
                 statusItem = item
             }
@@ -62,11 +63,11 @@ final class StatusItemController: NSObject {
         guard let statusItem else { return }
         let menu = NSMenu()
 
-        let header = NSMenuItem(title: "Clipboard Sync", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "ClipBridge", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
 
-        let openItem = NSMenuItem(title: "Open Clipboard Vault", action: #selector(openMainWindow), keyEquivalent: "o")
+        let openItem = NSMenuItem(title: "Open ClipBridge", action: #selector(openMainWindow), keyEquivalent: "o")
         openItem.target = self
         menu.addItem(openItem)
 
@@ -93,7 +94,7 @@ final class StatusItemController: NSObject {
 
         menu.addItem(.separator())
 
-        let quitItem = NSMenuItem(title: "Quit Clipboard Sync", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit ClipBridge", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
