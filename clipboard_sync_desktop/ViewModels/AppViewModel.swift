@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import ServiceManagement
 
 @MainActor
 final class AppViewModel: ObservableObject {
@@ -8,6 +9,8 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var networkSummary: NetworkSummary = .disconnected
     @Published var isWatching = false
     @Published var isDiscoverable: Bool
+    @Published var startAtLoginEnabled: Bool
+    @Published var showStatusItem: Bool
 
     private let watcher = PasteboardWatcher()
     private let networkMonitor = NetworkMonitor()
@@ -30,7 +33,31 @@ final class AppViewModel: ObservableObject {
         if defaults.object(forKey: "settings.discoverable") == nil {
             defaults.set(true, forKey: "settings.discoverable")
         }
-        isDiscoverable = defaults.bool(forKey: "settings.discoverable")
+        let discoverable = defaults.bool(forKey: "settings.discoverable")
+
+        if defaults.object(forKey: "settings.startAtLogin") == nil {
+            defaults.set(true, forKey: "settings.startAtLogin")
+        }
+        var computedStartAtLogin = defaults.bool(forKey: "settings.startAtLogin")
+        if LaunchAtLoginManager.isAvailable {
+            let systemEnabled = LaunchAtLoginManager.isEnabled()
+            if systemEnabled != computedStartAtLogin {
+                computedStartAtLogin = systemEnabled
+                defaults.set(systemEnabled, forKey: "settings.startAtLogin")
+            }
+            LaunchAtLoginManager.setEnabled(computedStartAtLogin)
+        } else {
+            computedStartAtLogin = false
+        }
+
+        if defaults.object(forKey: "settings.showStatusItem") == nil {
+            defaults.set(true, forKey: "settings.showStatusItem")
+        }
+        let statusItemVisible = defaults.bool(forKey: "settings.showStatusItem")
+
+        isDiscoverable = discoverable
+        startAtLoginEnabled = computedStartAtLogin
+        showStatusItem = statusItemVisible
 
         historyStore.load()
 
@@ -90,6 +117,19 @@ final class AppViewModel: ObservableObject {
         isDiscoverable = newValue
         UserDefaults.standard.set(newValue, forKey: "settings.discoverable")
         syncServer.updateDiscoverability(newValue)
+    }
+
+    func setStartAtLoginEnabled(_ newValue: Bool) {
+        guard startAtLoginEnabled != newValue else { return }
+        startAtLoginEnabled = newValue
+        UserDefaults.standard.set(newValue, forKey: "settings.startAtLogin")
+        LaunchAtLoginManager.setEnabled(newValue)
+    }
+
+    func setShowStatusItem(_ newValue: Bool) {
+        guard showStatusItem != newValue else { return }
+        showStatusItem = newValue
+        UserDefaults.standard.set(newValue, forKey: "settings.showStatusItem")
     }
 
     var pairingEndpoint: String? {

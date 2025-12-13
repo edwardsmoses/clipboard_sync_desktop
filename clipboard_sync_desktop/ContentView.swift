@@ -24,6 +24,14 @@ struct ContentView: View {
                     get: { viewModel.isDiscoverable },
                     set: { viewModel.setDiscoverable($0) }
                 ),
+                startAtLogin: Binding(
+                    get: { viewModel.startAtLoginEnabled },
+                    set: { viewModel.setStartAtLoginEnabled($0) }
+                ),
+                showStatusItem: Binding(
+                    get: { viewModel.showStatusItem },
+                    set: { viewModel.setShowStatusItem($0) }
+                ),
                 onPair: { isPairSheetPresented = true }
             )
             .tabItem { Label("Devices", systemImage: "ipad.and.iphone") }
@@ -51,6 +59,8 @@ struct ContentView: View {
 private struct PairingTab: View {
     @ObservedObject var viewModel: AppViewModel
     @Binding var isDiscoverable: Bool
+    @Binding var startAtLogin: Bool
+    @Binding var showStatusItem: Bool
     var onPair: () -> Void
 
     private var statusDescriptor: StatusDescriptor {
@@ -90,6 +100,15 @@ private struct PairingTab: View {
                     isDiscoverable: $isDiscoverable,
                     endpoint: viewModel.pairingEndpoint,
                     onPair: onPair
+                )
+                .frame(maxWidth: .infinity)
+
+                DesktopBehaviorCard(
+                    startAtLogin: $startAtLogin,
+                    showStatusItem: $showStatusItem,
+                    startAtLoginAvailable: LaunchAtLoginManager.isAvailable,
+                    isWatching: viewModel.isWatching,
+                    onToggleWatching: { viewModel.isWatching ? viewModel.stop() : viewModel.start() }
                 )
                 .frame(maxWidth: .infinity)
 
@@ -154,6 +173,77 @@ private struct StatusStrip: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor))
                 .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 4)
+        )
+    }
+}
+
+private struct DesktopBehaviorCard: View {
+    @Binding var startAtLogin: Bool
+    @Binding var showStatusItem: Bool
+    let startAtLoginAvailable: Bool
+    let isWatching: Bool
+    var onToggleWatching: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Desktop controls")
+                        .font(.headline)
+                    Text("Keep ClipBridge always on. Launch at login and keep the menu bar shortcut visible for quick access.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Button {
+                    onToggleWatching()
+                } label: {
+                    Label(isWatching ? "Pause" : "Resume", systemImage: isWatching ? "pause.fill" : "play.fill")
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.accentColor.opacity(0.12)))
+                }
+                .buttonStyle(.plain)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(isOn: $startAtLogin) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Start on login")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Launches the helper automatically when you sign in.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(!startAtLoginAvailable)
+                .overlay(alignment: .trailing) {
+                    if !startAtLoginAvailable {
+                        Text("Requires macOS 13+")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Toggle(isOn: $showStatusItem) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Show menu bar icon")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Keeps a menu bar shortcut with quick actions.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 6)
         )
     }
 }
