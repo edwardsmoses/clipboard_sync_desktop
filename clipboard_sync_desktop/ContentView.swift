@@ -8,6 +8,15 @@
 import AppKit
 import SwiftUI
 
+private enum Palette {
+    static let background = Color(hex: 0xf6f7fb)
+    static let surface = Color.white
+    static let surfaceBorder = Color.black.opacity(0.06)
+    static let accent = Color(hex: 0x4f8cff)
+    static let mutedText = Color(hex: 0x64748b)
+    static let primaryText = Color(hex: 0x0f172a)
+}
+
 struct ContentView: View {
     @EnvironmentObject private var viewModel: AppViewModel
     @State private var selection: ClipboardEntry.ID?
@@ -171,8 +180,12 @@ private struct StatusStrip: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-                .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 4)
+                .fill(Palette.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Palette.surfaceBorder)
+                )
+                .shadow(color: Color.black.opacity(0.22), radius: 14, x: 0, y: 8)
         )
     }
 }
@@ -332,7 +345,7 @@ private struct HistoryTab: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(Palette.background)
         }
     }
 }
@@ -345,36 +358,36 @@ private struct HeroCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Clipboard vault")
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.white)
+            Text("ClipBridge")
+                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .foregroundStyle(Palette.primaryText)
 
-            Text("Your snippets stay in sync across devices. Tap a card to preview or copy instantly.")
-                .foregroundStyle(Color.white.opacity(0.9))
-                .font(.system(size: 15))
+            Text("Subtle, production-ready clipboard sync for every device. Tap to preview or reuse instantly.")
+                .foregroundStyle(Palette.primaryText.opacity(0.85))
+                .font(.system(size: 14))
 
             HStack(spacing: 12) {
-                StatusChip(label: status.label, tint: status.tint)
-                StatusChip(label: "\(entryCount) saved", tint: Color.white.opacity(0.2), contentColor: .white)
-                StatusChip(label: networkDescription, tint: Color.white.opacity(0.18), contentColor: .white)
+                StatusChip(label: status.label, tint: Palette.accent.opacity(0.12), contentColor: Palette.primaryText)
+                StatusChip(label: "\(entryCount) saved", tint: Palette.accent.opacity(0.12), contentColor: Palette.primaryText)
+                StatusChip(label: networkDescription, tint: Palette.accent.opacity(0.1), contentColor: Palette.primaryText.opacity(0.9))
             }
 
             if filteredCount != entryCount {
                 Text("\(filteredCount) results match your search")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.8))
+                    .foregroundStyle(Palette.primaryText.opacity(0.7))
             }
         }
         .padding(24)
         .background(
-            LinearGradient(
-                colors: [Color(hex: 0x1d4ed8), Color(hex: 0x1e40af)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Palette.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Palette.surfaceBorder)
+                )
         )
-        .cornerRadius(32)
-        .shadow(color: Color.black.opacity(0.25), radius: 24, x: 0, y: 14)
+        .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 10)
     }
 }
 
@@ -387,22 +400,24 @@ private struct PairingCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Pair a device")
-                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .font(.system(size: 20, weight: .semibold, design: .rounded))
+                .foregroundStyle(Palette.primaryText)
 
             VStack(alignment: .leading, spacing: 8) {
                 Label(networkSummary.description, systemImage: networkSummary.isConnected ? "wifi" : "wifi.slash")
                     .font(.subheadline)
-                    .foregroundStyle(networkSummary.isConnected ? Color(hex: 0x2563eb) : Color.red)
+                    .foregroundStyle(networkSummary.isConnected ? Palette.accent : Color.red)
                 Text(networkSummary.isConnected
                     ? "Secure relay codes route through bridge.edwardsmoses.com so phones can pair from anywhere."
                     : "Connect this Mac to the internet to mint a new pairing code.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.mutedText)
             }
 
             Toggle(isOn: isDiscoverable) {
                 Text("Allow this Mac to be discoverable on the network")
                     .font(.subheadline)
+                    .foregroundStyle(Palette.primaryText)
             }
             .toggleStyle(.switch)
 
@@ -413,24 +428,28 @@ private struct PairingCard: View {
                         .padding(.vertical, 10)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Color(hex: 0x2563eb))
+                .tint(Palette.accent)
 
                 if endpoint == nil {
                     Text("Bridge is starting…")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Palette.mutedText)
                 } else {
                     Text("Keep this window open until you finish entering the code on your phone.")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Palette.mutedText)
                 }
             }
         }
         .padding(24)
         .background(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-                .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 8)
+                .fill(Palette.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(Palette.surfaceBorder)
+                )
+                .shadow(color: Color.black.opacity(0.22), radius: 16, x: 0, y: 10)
         )
     }
 }
@@ -444,27 +463,37 @@ private struct SearchCard: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Search history")
                 .font(.headline)
+                .foregroundStyle(Palette.primaryText)
             HStack {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.mutedText)
                 TextField("Find saved snippets…", text: $query)
                     .textFieldStyle(.plain)
+                    .foregroundStyle(Palette.primaryText)
             }
             .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(nsColor: .textBackgroundColor))
+                    .fill(Palette.surface.opacity(0.7))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(Palette.surfaceBorder)
+                    )
             )
 
             Text(summaryText)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Palette.mutedText)
         }
         .padding(20)
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-                .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
+                .fill(Palette.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Palette.surfaceBorder)
+                )
+                .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 8)
         )
     }
 
@@ -490,9 +519,10 @@ private struct EntryRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.deviceName)
                         .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.primaryText)
                     Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Palette.mutedText)
                 }
                 Spacer()
 
@@ -513,6 +543,7 @@ private struct EntryRow: View {
             Text(entry.preview.isEmpty ? "No preview available" : entry.preview)
                 .font(.system(size: 14))
                 .lineLimit(3)
+                .foregroundStyle(Palette.primaryText)
 
             HStack(spacing: 8) {
                 StatusTag(text: entry.isPinned ? "Pinned" : "Pin", tint: Color.gray.opacity(0.15), contentColor: .secondary)
@@ -714,7 +745,7 @@ private struct IconBadge: View {
 private struct StatusTag: View {
     let text: String
     let tint: Color
-    var contentColor: Color = .black
+    var contentColor: Color = Palette.primaryText
 
     var body: some View {
         Text(text)
@@ -724,7 +755,7 @@ private struct StatusTag: View {
             .padding(.vertical, 3)
             .background(
                 Capsule()
-                    .fill(tint)
+                    .fill(tint.opacity(0.35))
             )
             .foregroundStyle(contentColor)
     }
@@ -759,13 +790,14 @@ private struct ConnectedDeviceRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "iphone")
-                .foregroundStyle(Color(hex: 0x2563eb))
+                .foregroundStyle(Palette.accent)
             VStack(alignment: .leading) {
                 Text(client.deviceName)
                     .font(.subheadline)
+                    .foregroundStyle(Palette.primaryText)
                 Text("Live connection")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.mutedText)
             }
         }
         .padding(.vertical, 6)
@@ -780,15 +812,16 @@ private struct PairingFocusView: View {
         VStack(spacing: 18) {
             Image(systemName: "iphone.and.arrow.forward")
                 .font(.system(size: 42, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x2563eb))
+                .foregroundStyle(Palette.accent)
 
             Text("Pair your phone")
                 .font(.title3.bold())
+                .foregroundStyle(Palette.primaryText)
 
             Text("Keep this window open, then tap “Pair new device” on your phone to join via the secure relay.")
                 .font(.body)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Palette.mutedText)
                 .frame(maxWidth: 360)
 
             Button(action: onPair) {
@@ -797,14 +830,14 @@ private struct PairingFocusView: View {
                     .padding(.vertical, 10)
             }
             .buttonStyle(.borderedProminent)
-            .tint(Color(hex: 0x2563eb))
+            .tint(Palette.accent)
 
             HStack(spacing: 8) {
                 Image(systemName: networkSummary.isConnected ? "wifi" : "wifi.slash")
                     .foregroundStyle(networkSummary.isConnected ? Color.green : Color.red)
                 Text(networkSummary.description)
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Palette.mutedText)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -816,13 +849,14 @@ private struct DashboardPlaceholder: View {
         VStack(spacing: 16) {
             Image(systemName: "rectangle.on.rectangle.angled")
                 .font(.system(size: 42))
-                .foregroundStyle(Color(hex: 0x2563eb))
+                .foregroundStyle(Palette.accent)
             Text("Select a clipboard item")
                 .font(.title3.bold())
+                .foregroundStyle(Palette.primaryText)
             Text("Choose a card from the left to inspect the full content, metadata, and sync status.")
                 .font(.body)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Palette.mutedText)
                 .frame(maxWidth: 320)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
