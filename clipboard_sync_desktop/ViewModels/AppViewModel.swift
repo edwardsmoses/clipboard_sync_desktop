@@ -106,6 +106,17 @@ final class AppViewModel: ObservableObject {
         historyStore.clear()
     }
 
+    func regeneratePairingSession() {
+        syncServer.stop()
+        syncServer.start(discoverable: isDiscoverable)
+    }
+
+    func ensurePairingSessionActive() {
+        if syncServer.state == .stopped {
+            syncServer.start(discoverable: isDiscoverable)
+        }
+    }
+
     func togglePin(entry: ClipboardEntry) {
         var updated = entry
         updated.isPinned.toggle()

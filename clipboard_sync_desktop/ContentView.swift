@@ -30,7 +30,8 @@ struct ContentView: View {
                 if tabSelection == .history {
                     viewModel.deleteAll()
                 } else {
-                    isPairSheetPresented = true
+                    // Inline pairing only; no modal.
+                    tabSelection = .devices
                 }
             })
             StatusRow(
@@ -71,9 +72,9 @@ struct ContentView: View {
             }
             .tabViewStyle(.automatic)
 
-            if tabSelection == .history {
+            if tabSelection == .history, let entry = selection.flatMap({ id in viewModel.historyStore.entries.first(where: { $0.id == id }) }) {
                 DetailsDrawer(
-                    entry: selection.flatMap { id in viewModel.historyStore.entries.first(where: { $0.id == id }) },
+                    entry: entry,
                     onClose: { selection = nil },
                     onCopy: { entry in
                         if let text = entry.text, !text.isEmpty {
@@ -88,13 +89,6 @@ struct ContentView: View {
                 )
             }
         }
-        .sheet(isPresented: $isPairSheetPresented) {
-            PairingSheet(
-                endpoint: viewModel.pairingEndpoint,
-                pairingCode: viewModel.pairingCode,
-                networkSummary: viewModel.networkSummary
-            )
-        }
         .background(Palette.background)
         .onAppear { viewModel.start() }
     }
@@ -106,6 +100,7 @@ private struct PairingTab: View {
     @Binding var startAtLogin: Bool
     @Binding var showStatusItem: Bool
     var onPair: () -> Void
+    @State private var isPairingActive = false
 
     private var appVersion: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
@@ -118,13 +113,26 @@ private struct PairingTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                SectionHeader(title: "Device setup")
+
                 PairingCard(
                     networkSummary: viewModel.networkSummary,
-                    isDiscoverable: $isDiscoverable,
-                    endpoint: viewModel.pairingEndpoint,
-                    onPair: onPair
+                    pairingCode: viewModel.pairingCode,
+                    isActive: $isPairingActive,
+                    onBegin: {
+                        isPairingActive = true
+                        viewModel.ensurePairingSessionActive()
+                        onPair()
+                    }
                 )
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: 760, alignment: .leading)
+
+                DeviceVisibilityCard(
+                    isDiscoverable: $isDiscoverable
+                )
+                .frame(maxWidth: 760, alignment: .leading)
+
+                SectionHeader(title: "App preferences")
 
                 DesktopBehaviorCard(
                     startAtLogin: $startAtLogin,
@@ -133,7 +141,7 @@ private struct PairingTab: View {
                     isWatching: viewModel.isWatching,
                     onToggleWatching: { viewModel.isWatching ? viewModel.stop() : viewModel.start() }
                 )
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: 760, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
@@ -156,7 +164,7 @@ private struct PairingTab: View {
                 .padding(.horizontal, 4)
             }
             .padding(24)
-            .frame(maxWidth: 920)
+            .frame(maxWidth: 760)
             .frame(maxWidth: .infinity)
         }
     }
@@ -175,7 +183,7 @@ private struct DesktopBehaviorCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Desktop controls")
                         .font(.headline)
-                    Text("Keep ClipBridge always on. Launch at login and keep the menu bar shortcut visible for quick access.")
+                    Text("Keep ClipBridge always on. Launch at login and keep the menu bar shortcut visible.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -251,44 +259,45 @@ private struct HistoryTab: View {
     }
 
     var body: some View {
-        ZStack(alignment: .trailing) {
-            VStack(spacing: 0) {
-                SearchHeader(
-                    query: $searchQuery,
-                    totalCount: allEntries.count,
-                    filteredCount: filteredEntries.count
-                )
-                ScrollView {
-                    LazyVStack(spacing: 0, pinnedViews: []) {
-                        ForEach(filteredEntries) { entry in
-                            HistoryGridRow(entry: entry, onTogglePin: onTogglePin, onDelete: onDelete, onSelect: {
-                                selection = entry.id
-                            })
-                            Divider().padding(.leading, 64)
-                        }
-                    }
-                    .frame(maxWidth: 920)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 24)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                }
-                .background(Palette.background)
-            }
-
-            DetailsDrawer(
-                entry: selection.flatMap { id in viewModel.historyStore.entries.first(where: { $0.id == id }) },
-                onClose: { selection = nil },
-                onCopy: { entry in
-                    if let text = entry.text, !text.isEmpty {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(text, forType: .string)
-                    }
-                },
-                onDelete: { entry in
-                    onDelete(entry)
-                    selection = nil
-                }
+        VStack(spacing: 0) {
+            SearchHeader(
+                query: $searchQuery,
+                totalCount: allEntries.count,
+                filteredCount: filteredEntries.count
             )
+            ScrollView {
+                LazyVStack(spacing: 0, pinnedViews: []) {
+                    ForEach(filteredEntries) { entry in
+                        HistoryGridRow(entry: entry, onTogglePin: onTogglePin, onDelete: onDelete, onSelect: {
+                            selection = entry.id
+                        })
+                        Divider().padding(.leading, 64)
+                    }
+                }
+                .frame(maxWidth: 920)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .background(Palette.background)
+        }
+        .overlay(alignment: .trailing) {
+            if let entry = selection.flatMap({ id in viewModel.historyStore.entries.first(where: { $0.id == id }) }) {
+                DetailsDrawer(
+                    entry: entry,
+                    onClose: { selection = nil },
+                    onCopy: { entry in
+                        if let text = entry.text, !text.isEmpty {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(text, forType: .string)
+                        }
+                    },
+                    onDelete: { entry in
+                        onDelete(entry)
+                        selection = nil
+                    }
+                )
+            }
         }
     }
 }
@@ -368,42 +377,67 @@ private struct HeroCard: View {
 
 private struct PairingCard: View {
     let networkSummary: NetworkSummary
-    var isDiscoverable: Binding<Bool>
-    let endpoint: String?
-    var onPair: () -> Void
+    let pairingCode: String?
+    @Binding var isActive: Bool
+    var onBegin: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Pair a device")
                 .font(.system(size: 20, weight: .semibold, design: .rounded))
                 .foregroundStyle(Palette.primaryText)
 
-            Text("Securely pair with a one-time code.")
+            Text("Securely connect a phone using a one-time code.")
                 .font(.subheadline)
                 .foregroundStyle(Palette.mutedText)
 
-            HStack {
-                Text("Allow this Mac to be discoverable")
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.primaryText)
-                Spacer()
-                Toggle("", isOn: isDiscoverable)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
+            if isActive {
+                Divider()
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Pairing code")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Palette.mutedText)
+                    if let code = pairingCode {
+                        PairingCodeDisplay(code: code)
+                    } else {
+                        ProgressView("Preparing secure bridge…")
+                            .progressViewStyle(.circular)
+                    }
+                    Text("Enter this code on your phone to pair.")
+                        .font(.caption)
+                        .foregroundStyle(Palette.mutedText)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Palette.surface.opacity(0.7))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Palette.surfaceBorder)
+                        )
+                )
+            } else {
+                Button(action: {
+                    onBegin()
+                }) {
+                    Text("Pair new device")
+                        .frame(maxWidth: 360)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Palette.accent)
             }
 
-            Divider()
+            Divider().padding(.vertical, 4)
 
-            Button(action: onPair) {
-                Label("Show pairing code", systemImage: "number.square")
-                    .frame(maxWidth: .infinity)
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Works over a secure relay", systemImage: "network")
+                    .font(.caption)
+                    .foregroundStyle(Palette.mutedText)
+                Label("You’ll enter this code on your phone", systemImage: "iphone")
+                    .font(.caption)
+                    .foregroundStyle(Palette.mutedText)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Palette.accent)
-
-            Text(endpoint == nil ? "Bridge is starting…" : "Keep this window open until you finish entering the code on your phone.")
-                .font(.caption)
-                .foregroundStyle(Palette.mutedText)
         }
         .padding(20)
         .background(
@@ -414,6 +448,62 @@ private struct PairingCard: View {
                         .stroke(Palette.surfaceBorder)
                 )
         )
+    }
+}
+
+private struct DeviceVisibilityCard: View {
+    @Binding var isDiscoverable: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Device visibility")
+                .font(.headline)
+            Text("Allow pairing requests from nearby devices.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Button {
+                isDiscoverable.toggle()
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Allow pairing requests from nearby devices")
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.primaryText)
+                        Text("A one-time code is always required.")
+                            .font(.caption)
+                            .foregroundStyle(Palette.mutedText)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $isDiscoverable)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Palette.surfaceBorder)
+                )
+        )
+    }
+}
+
+private struct SectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title.uppercased())
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Palette.mutedText)
+            .padding(.horizontal, 4)
+            .padding(.top, 12)
     }
 }
 
@@ -928,57 +1018,6 @@ private struct DashboardPlaceholder: View {
     }
 }
 
-private struct PairingSheet: View {
-    let endpoint: String?
-    let pairingCode: String?
-    let networkSummary: NetworkSummary
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: 24) {
-            Capsule()
-                .fill(Color.secondary.opacity(0.2))
-                .frame(width: 48, height: 6)
-
-            Text("Pair with your phone")
-                .font(.title2.weight(.semibold))
-
-            if let code = pairingCode {
-                PairingCodeDisplay(code: code)
-
-                VStack(spacing: 8) {
-                    Text("Enter this code on your phone. We’ll use it to autofill the secure connection.")
-                        .multilineTextAlignment(.center)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Button("Copy code") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(code.replacingOccurrences(of: "-", with: ""), forType: .string)
-                    }
-                }
-            } else {
-                ProgressView("Preparing secure bridge…")
-                    .progressViewStyle(.circular)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Label(networkSummary.description, systemImage: networkSummary.isConnected ? "wifi" : "wifi.slash")
-                    .foregroundStyle(networkSummary.isConnected ? Color.green : Color.red)
-                Text("Open Clipboard Sync on Android, choose “Pair new device,” and enter the code. The secure relay handles the rest — any network works.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            Button("Close") {
-                dismiss()
-            }
-            .buttonStyle(.bordered)
-        }
-        .padding(32)
-        .frame(width: 420)
-    }
-}
-
 private struct PairingCodeDisplay: View {
     let code: String
 
@@ -996,11 +1035,10 @@ private struct PairingCodeDisplay: View {
                     .font(.system(size: 32, weight: .bold, design: .rounded))
                     .kerning(4)
                     .frame(minWidth: 80)
-                    .padding(.vertical, 16)
+                    .padding(.vertical, 12)
                     .background(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
                             .fill(Color(nsColor: .controlBackgroundColor))
-                            .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
                     )
             }
         }
@@ -1047,7 +1085,7 @@ private struct TopBar: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
-        .frame(maxWidth: 920)
+        .frame(maxWidth: 760)
         .frame(maxWidth: .infinity)
         .background(Palette.background)
     }
@@ -1100,15 +1138,17 @@ private struct StatusRow: View {
     let networkDescription: String
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             StatusPillDesktop(state: state)
             Spacer()
-            StatusChip(label: "\(entryCount) saved", tint: Palette.accent.opacity(0.12), contentColor: Palette.primaryText)
-            StatusChip(label: networkDescription, tint: Palette.accent.opacity(0.1), contentColor: Palette.primaryText)
+            HStack(spacing: 8) {
+                StatusChip(label: "\(entryCount) saved", tint: Palette.accent.opacity(0.12), contentColor: Palette.primaryText)
+                StatusChip(label: networkDescription, tint: Palette.accent.opacity(0.08), contentColor: Palette.primaryText)
+            }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 10)
-        .frame(maxWidth: 920)
+        .frame(maxWidth: 760)
         .frame(maxWidth: .infinity)
         .background(Palette.background)
     }
