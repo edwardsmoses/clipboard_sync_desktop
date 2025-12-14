@@ -22,37 +22,54 @@ struct ContentView: View {
     @State private var selection: ClipboardEntry.ID?
     @State private var searchQuery = ""
     @State private var isPairSheetPresented = false
-
-    // History filtering now lives inside HistoryTab so the list reacts immediately to store changes.
+    @State private var tabSelection: Tab = .devices
 
     var body: some View {
-        TabView {
-            PairingTab(
-                viewModel: viewModel,
-                isDiscoverable: Binding(
-                    get: { viewModel.isDiscoverable },
-                    set: { viewModel.setDiscoverable($0) }
-                ),
-                startAtLogin: Binding(
-                    get: { viewModel.startAtLoginEnabled },
-                    set: { viewModel.setStartAtLoginEnabled($0) }
-                ),
-                showStatusItem: Binding(
-                    get: { viewModel.showStatusItem },
-                    set: { viewModel.setShowStatusItem($0) }
-                ),
-                onPair: { isPairSheetPresented = true }
+        VStack(spacing: 0) {
+            TopBar(tabSelection: $tabSelection, onAction: {
+                if tabSelection == .history {
+                    viewModel.deleteAll()
+                } else {
+                    isPairSheetPresented = true
+                }
+            })
+            StatusRow(
+                state: viewModel.syncServer.state,
+                entryCount: viewModel.historyStore.entries.count,
+                networkDescription: viewModel.networkSummary.description
             )
-            .tabItem { Label("Devices", systemImage: "ipad.and.iphone") }
+            Divider().overlay(Palette.surfaceBorder).padding(.horizontal, 0)
+            TabView(selection: $tabSelection) {
+                PairingTab(
+                    viewModel: viewModel,
+                    isDiscoverable: Binding(
+                        get: { viewModel.isDiscoverable },
+                        set: { viewModel.setDiscoverable($0) }
+                    ),
+                    startAtLogin: Binding(
+                        get: { viewModel.startAtLoginEnabled },
+                        set: { viewModel.setStartAtLoginEnabled($0) }
+                    ),
+                    showStatusItem: Binding(
+                        get: { viewModel.showStatusItem },
+                        set: { viewModel.setShowStatusItem($0) }
+                    ),
+                    onPair: { isPairSheetPresented = true }
+                )
+                .tag(Tab.devices)
+                .tabItem { EmptyView() }
 
-            HistoryTab(
-                viewModel: viewModel,
-                selection: $selection,
-                searchQuery: $searchQuery,
-                onTogglePin: viewModel.togglePin,
-                onDelete: viewModel.delete
-            )
-            .tabItem { Label("History", systemImage: "clock") }
+                HistoryTab(
+                    viewModel: viewModel,
+                    selection: $selection,
+                    searchQuery: $searchQuery,
+                    onTogglePin: viewModel.togglePin,
+                    onDelete: viewModel.delete
+                )
+                .tag(Tab.history)
+                .tabItem { EmptyView() }
+            }
+            .tabViewStyle(.automatic)
         }
         .sheet(isPresented: $isPairSheetPresented) {
             PairingSheet(
@@ -61,6 +78,7 @@ struct ContentView: View {
                 networkSummary: viewModel.networkSummary
             )
         }
+        .background(Palette.background)
         .onAppear { viewModel.start() }
     }
 }
@@ -277,76 +295,81 @@ private struct HistoryTab: View {
         let needle = trimmed.lowercased()
         return allEntries.filter { $0.preview.lowercased().contains(needle) || $0.deviceName.lowercased().contains(needle) }
     }
-    private var pinnedEntries: [ClipboardEntry] { filteredEntries.filter(\.isPinned) }
-    private var recentEntries: [ClipboardEntry] { filteredEntries.filter { !$0.isPinned } }
 
     var body: some View {
-        NavigationStack {
-            List(selection: $selection) {
-                Section {
-                    SearchCard(
-                        query: $searchQuery,
-                        totalCount: allEntries.count,
-                        filteredCount: filteredEntries.count
-                    )
-                }
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-
-                if !pinnedEntries.isEmpty {
-                    Section("Pinned") {
-                        ForEach(pinnedEntries) { entry in
-                            NavigationLink(value: entry.id) {
-                                EntryRow(entry: entry, onTogglePin: onTogglePin, onDelete: onDelete)
-                            }
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+        ZStack(alignment: .trailing) {
+            VStack(spacing: 0) {
+                SearchHeader(
+                    query: $searchQuery,
+                    totalCount: allEntries.count,
+                    filteredCount: filteredEntries.count
+                )
+                ScrollView {
+                    LazyVStack(spacing: 0, pinnedViews: []) {
+                        ForEach(filteredEntries) { entry in
+                            HistoryGridRow(entry: entry, onTogglePin: onTogglePin, onDelete: onDelete, onSelect: {
+                                selection = entry.id
+                            })
+                            Divider().padding(.leading, 64)
                         }
                     }
+                    .frame(maxWidth: 920)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 24)
+                    .frame(maxWidth: .infinity, alignment: .center)
                 }
+                .background(Palette.background)
+            }
 
-                Section("Recent") {
-                    if recentEntries.isEmpty {
-                        Text("Copy something to see it here.")
-                            .foregroundStyle(.secondary)
-                            .padding(.vertical, 12)
+            DetailsDrawer(
+                entry: selection.flatMap { id in viewModel.historyStore.entries.first(where: { $0.id == id }) },
+                onClose: { selection = nil },
+                onCopy: { entry in
+                    if let text = entry.text, !text.isEmpty {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
                     }
-                    ForEach(recentEntries) { entry in
-                        NavigationLink(value: entry.id) {
-                            EntryRow(entry: entry, onTogglePin: onTogglePin, onDelete: onDelete)
-                        }
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                    }
+                },
+                onDelete: { entry in
+                    onDelete(entry)
+                    selection = nil
                 }
-            }
-            .navigationTitle("Clipboard vault")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button(role: .destructive) {
-                        showClearConfirm = true
-                    } label: {
-                        Label("Delete all", systemImage: "trash")
-                    }
-                    .disabled(allEntries.isEmpty)
-                }
-            }
-            .confirmationDialog("Delete all history?", isPresented: $showClearConfirm) {
-                Button("Delete all", role: .destructive) {
-                    viewModel.deleteAll()
-                }
-                Button("Cancel", role: .cancel) {}
-            }
-            .navigationDestination(for: ClipboardEntry.ID.self) { id in
-                if let entry = viewModel.historyStore.entries.first(where: { $0.id == id }) {
-                    EntryDetailView(entry: entry)
-                } else {
-                    Text("Item not found").foregroundStyle(.secondary)
-                }
-            }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
+            )
         }
+    }
+}
+
+private struct SearchHeader: View {
+    @Binding var query: String
+    let totalCount: Int
+    let filteredCount: Int
+
+    var body: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Palette.mutedText)
+                TextField("Search your clipboard", text: $query)
+                    .textFieldStyle(.plain)
+                    .foregroundStyle(Palette.primaryText)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Palette.surfaceBorder)
+                    )
+            )
+
+            Spacer()
+            StatusChip(label: "\(filteredCount) saved", tint: Palette.accent.opacity(0.12), contentColor: Palette.primaryText)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+        .background(Palette.background)
     }
 }
 
@@ -398,58 +421,46 @@ private struct PairingCard: View {
     var onPair: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("Pair a device")
                 .font(.system(size: 20, weight: .semibold, design: .rounded))
                 .foregroundStyle(Palette.primaryText)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Label(networkSummary.description, systemImage: networkSummary.isConnected ? "wifi" : "wifi.slash")
-                    .font(.subheadline)
-                    .foregroundStyle(networkSummary.isConnected ? Palette.accent : Color.red)
-                Text(networkSummary.isConnected
-                    ? "Secure relay codes route through bridge.edwardsmoses.com so phones can pair from anywhere."
-                    : "Connect this Mac to the internet to mint a new pairing code.")
-                    .font(.caption)
-                    .foregroundStyle(Palette.mutedText)
-            }
-
-            Toggle(isOn: isDiscoverable) {
-                Text("Allow this Mac to be discoverable on the network")
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.primaryText)
-            }
-            .toggleStyle(.switch)
+            Text("Securely pair with a one-time code.")
+                .font(.subheadline)
+                .foregroundStyle(Palette.mutedText)
 
             HStack {
-                Button(action: onPair) {
-                    Label("Show pairing code", systemImage: "number.square")
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Palette.accent)
-
-                if endpoint == nil {
-                    Text("Bridge is starting…")
-                        .font(.caption)
-                        .foregroundStyle(Palette.mutedText)
-                } else {
-                    Text("Keep this window open until you finish entering the code on your phone.")
-                        .font(.caption)
-                        .foregroundStyle(Palette.mutedText)
-                }
+                Text("Allow this Mac to be discoverable")
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.primaryText)
+                Spacer()
+                Toggle("", isOn: isDiscoverable)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
             }
+
+            Divider()
+
+            Button(action: onPair) {
+                Label("Show pairing code", systemImage: "number.square")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Palette.accent)
+
+            Text(endpoint == nil ? "Bridge is starting…" : "Keep this window open until you finish entering the code on your phone.")
+                .font(.caption)
+                .foregroundStyle(Palette.mutedText)
         }
-        .padding(24)
+        .padding(20)
         .background(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Palette.surface)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .stroke(Palette.surfaceBorder)
                 )
-                .shadow(color: Color.black.opacity(0.22), radius: 16, x: 0, y: 10)
         )
     }
 }
@@ -506,26 +517,33 @@ private struct SearchCard: View {
     }
 }
 
-private struct EntryRow: View {
+private struct HistoryGridRow: View {
     let entry: ClipboardEntry
     var onTogglePin: (ClipboardEntry) -> Void
     var onDelete: (ClipboardEntry) -> Void
+    var onSelect: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 8) {
-                IconBadge(contentType: entry.contentType)
+        HStack(alignment: .center, spacing: 16) {
+            IconBadge(contentType: entry.contentType)
+                .frame(width: 32, alignment: .center)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.deviceName)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Palette.primaryText)
-                    Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption2)
-                        .foregroundStyle(Palette.mutedText)
-                }
-                Spacer()
+            VStack(alignment: .leading, spacing: 4) {
+                Text(entry.deviceName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.primaryText)
+                Text(entry.preview.isEmpty ? "No preview available" : entry.preview)
+                    .font(.system(size: 14))
+                    .lineLimit(2)
+                    .foregroundStyle(Palette.primaryText)
+            }
 
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 6) {
+                Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption2)
+                    .foregroundStyle(Palette.mutedText)
                 Menu {
                     Button(entry.isPinned ? "Unpin" : "Pin") {
                         onTogglePin(entry)
@@ -539,35 +557,13 @@ private struct EntryRow: View {
                 }
                 .fixedSize()
             }
-
-            Text(entry.preview.isEmpty ? "No preview available" : entry.preview)
-                .font(.system(size: 14))
-                .lineLimit(3)
-                .foregroundStyle(Palette.primaryText)
-
-            HStack(spacing: 8) {
-                StatusTag(text: entry.isPinned ? "Pinned" : "Pin", tint: Color.gray.opacity(0.15), contentColor: .secondary)
-                    .onTapGesture {
-                        onTogglePin(entry)
-                    }
-                StatusTag(text: entry.syncState.rawValue.capitalized, tint: Color(hex: 0xe5e7eb), contentColor: Color(hex: 0x1f2937))
-                StatusTag(text: entry.contentType.rawValue.capitalized, tint: Color(hex: 0xf1f5f9), contentColor: Color(hex: 0x0f172a))
-            }
+            .frame(width: 140, alignment: .trailing)
         }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-                .shadow(color: Color.black.opacity(0.06), radius: 12, x: 0, y: 6)
-        )
-        .contextMenu {
-            Button(entry.isPinned ? "Unpin" : "Pin") {
-                onTogglePin(entry)
-            }
-            Button("Delete", role: .destructive) {
-                onDelete(entry)
-            }
-        }
+        .frame(minHeight: 72)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 4)
+        .contentShape(Rectangle())
+        .onTapGesture { onSelect() }
     }
 }
 
@@ -694,6 +690,111 @@ private struct DetailCardStyle: ViewModifier {
                     .fill(Color(nsColor: .controlBackgroundColor))
                     .shadow(color: Color.black.opacity(0.05), radius: 16, x: 0, y: 8)
             )
+    }
+}
+
+private struct DetailsDrawer: View {
+    let entry: ClipboardEntry?
+    var onClose: () -> Void
+    var onCopy: (ClipboardEntry) -> Void
+    var onDelete: (ClipboardEntry) -> Void
+
+    var body: some View {
+        Group {
+            if let entry {
+                ZStack(alignment: .trailing) {
+                    Color.black.opacity(0.08)
+                        .ignoresSafeArea()
+                        .onTapGesture { onClose() }
+                    drawer(entry: entry)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.15), value: entry?.id)
+    }
+
+    private func drawer(entry: ClipboardEntry) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(entry.deviceName)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Palette.primaryText)
+                    Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption)
+                        .foregroundStyle(Palette.mutedText)
+                }
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let text = entry.text, !text.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Content")
+                        .font(.headline)
+                    Text(text)
+                        .font(.body)
+                        .lineLimit(8)
+                        .textSelection(.enabled)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    onCopy(entry)
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Palette.accent)
+
+                Button(role: .destructive) {
+                    onDelete(entry)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Metadata")
+                    .font(.headline)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Entry ID: \(entry.id.uuidString)")
+                        .font(.caption)
+                        .foregroundStyle(Palette.mutedText)
+                    Text("Type: \(entry.contentType.rawValue.capitalized)")
+                        .font(.caption)
+                        .foregroundStyle(Palette.mutedText)
+                    Text("Sync: \(entry.syncState.rawValue.capitalized)")
+                        .font(.caption)
+                        .foregroundStyle(Palette.mutedText)
+                    if entry.isPinned {
+                        Text("Pinned")
+                            .font(.caption)
+                            .foregroundStyle(Palette.mutedText)
+                    }
+                }
+            }
+            Spacer()
+        }
+        .padding(20)
+        .frame(width: 420, alignment: .topLeading)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(Palette.surface)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Palette.surfaceBorder)
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
+        }
+        .ignoresSafeArea(edges: .vertical)
     }
 }
 
@@ -960,4 +1061,115 @@ private extension Color {
 #Preview {
     ContentView()
         .environmentObject(AppViewModel())
+}
+private enum Tab: Hashable {
+    case devices
+    case history
+}
+
+private struct TopBar: View {
+    @Binding var tabSelection: Tab
+    var onAction: () -> Void
+
+    var body: some View {
+        HStack {
+            Text("ClipBridge")
+                .font(.headline)
+                .foregroundStyle(Palette.primaryText)
+            Spacer()
+            SegmentedControl(selection: $tabSelection)
+            Spacer()
+            Button(action: onAction) {
+                Image(systemName: tabSelection == .history ? "trash" : "number.square")
+                    .font(.system(size: 15, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 8)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+        .background(Palette.background)
+    }
+}
+
+private struct SegmentedControl: View {
+    @Binding var selection: Tab
+
+    var body: some View {
+        HStack(spacing: 0) {
+            segmentButton(title: "Devices", tab: .devices)
+            segmentButton(title: "History", tab: .history)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Palette.surfaceBorder)
+                )
+        )
+    }
+
+    private func segmentButton(title: String, tab: Tab) -> some View {
+        Button {
+            selection = tab
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .frame(minWidth: 96)
+                .foregroundStyle(selection == tab ? Palette.primaryText : Palette.mutedText)
+                .background(
+                    Group {
+                        if selection == tab {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Palette.accent.opacity(0.12))
+                        }
+                    }
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct StatusRow: View {
+    let state: SyncServer.ServerState
+    let entryCount: Int
+    let networkDescription: String
+
+    private var statusText: String {
+        switch state {
+        case .stopped: return "Stopped"
+        case .connecting: return "Connecting"
+        case .connected: return "Syncing"
+        case .failed: return "Error"
+        }
+    }
+
+    private var statusColor: Color {
+        switch state {
+        case .connected: return Color(hex: 0x22c55e)
+        case .connecting: return Color(hex: 0xeab308)
+        case .failed: return Color(hex: 0xf97316)
+        case .stopped: return Palette.mutedText
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Circle().fill(statusColor).frame(width: 10, height: 10)
+                Text(statusText)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(statusColor)
+            }
+            Spacer()
+            StatusChip(label: "\(entryCount) saved", tint: Palette.accent.opacity(0.12), contentColor: Palette.primaryText)
+            StatusChip(label: networkDescription, tint: Palette.accent.opacity(0.1), contentColor: Palette.primaryText)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 10)
+        .background(Palette.background)
+    }
 }
