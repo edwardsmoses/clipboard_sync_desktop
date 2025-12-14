@@ -370,7 +370,7 @@ private struct PairingCard: View {
                 .font(.system(size: 20, weight: .semibold, design: .rounded))
                 .foregroundStyle(Palette.primaryText)
 
-            Text("Securely connect a phone using a one-time code.")
+            Text("Securely connect your phone using a one-time code.")
                 .font(.subheadline)
                 .foregroundStyle(Palette.mutedText)
 
@@ -404,7 +404,7 @@ private struct PairingCard: View {
                 Button(action: {
                     onBegin()
                 }) {
-                    Text("Pair new device")
+                    Text("Pair your new device")
                         .frame(maxWidth: 360)
                 }
                 .buttonStyle(.borderedProminent)
@@ -441,7 +441,7 @@ private struct DeviceVisibilityCard: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Device visibility")
                 .font(.headline)
-            Text("Allow pairing requests from nearby devices.")
+            Text("Allow pairing requests from your devices.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
@@ -450,7 +450,7 @@ private struct DeviceVisibilityCard: View {
             } label: {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Allow pairing requests from nearby devices")
+                        Text("Allow pairing requests from your devices")
                             .font(.subheadline)
                             .foregroundStyle(Palette.primaryText)
                         Text("A one-time code is always required.")
@@ -553,7 +553,7 @@ private struct HistoryGridRow: View {
             IconBadge(contentType: entry.contentType)
                 .frame(width: 32, alignment: .center)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text(entry.deviceName)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Palette.primaryText)
@@ -591,8 +591,8 @@ private struct HistoryGridRow: View {
             Spacer()
         }
         .padding(.leading, 44)
-        .padding(.top, 4)
-        .frame(minHeight: 64)
+        .padding(.top, 8)
+        .frame(minHeight: 54)
         .padding(.vertical, 8)
         .padding(.horizontal, 4)
         .contentShape(Rectangle())
