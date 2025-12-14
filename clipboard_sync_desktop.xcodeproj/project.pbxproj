@@ -275,7 +275,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "edwardsmoses.clipboard-sync-desktop";
 				PRODUCT_NAME = ClipBridge;
 				REGISTER_APP_GROUPS = YES;
@@ -318,7 +318,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "edwardsmoses.clipboard-sync-desktop";
 				PRODUCT_NAME = ClipBridge;
 				REGISTER_APP_GROUPS = YES;
