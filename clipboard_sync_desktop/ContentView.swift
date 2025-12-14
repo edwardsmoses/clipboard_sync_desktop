@@ -70,6 +70,23 @@ struct ContentView: View {
                 .tabItem { EmptyView() }
             }
             .tabViewStyle(.automatic)
+
+            if tabSelection == .history {
+                DetailsDrawer(
+                    entry: selection.flatMap { id in viewModel.historyStore.entries.first(where: { $0.id == id }) },
+                    onClose: { selection = nil },
+                    onCopy: { entry in
+                        if let text = entry.text, !text.isEmpty {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(text, forType: .string)
+                        }
+                    },
+                    onDelete: { entry in
+                        viewModel.delete(entry: entry)
+                        selection = nil
+                    }
+                )
+            }
         }
         .sheet(isPresented: $isPairSheetPresented) {
             PairingSheet(
@@ -90,19 +107,6 @@ private struct PairingTab: View {
     @Binding var showStatusItem: Bool
     var onPair: () -> Void
 
-    private var statusDescriptor: StatusDescriptor {
-        switch viewModel.syncServer.state {
-        case .stopped:
-            return .init(label: "Stopped", tint: Color(nsColor: .systemGray))
-        case .connecting:
-            return .init(label: "Connecting…", tint: Color(hex: 0xf59e0b))
-        case .connected:
-            return isDiscoverable ? .init(label: "Discoverable", tint: Color(hex: 0x4ade80)) : .init(label: "Hidden", tint: Color(hex: 0xfbbf24))
-        case .failed:
-            return .init(label: "Error", tint: Color(hex: 0xf87171))
-        }
-    }
-
     private var appVersion: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
         if let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String, !build.isEmpty {
@@ -114,14 +118,6 @@ private struct PairingTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                StatusStrip(
-                    status: statusDescriptor,
-                    entryCount: viewModel.historyStore.entries.count,
-                    networkDescription: viewModel.networkSummary.description,
-                    clients: viewModel.syncServer.clients
-                )
-                .frame(maxWidth: .infinity)
-
                 PairingCard(
                     networkSummary: viewModel.networkSummary,
                     isDiscoverable: $isDiscoverable,
@@ -138,8 +134,6 @@ private struct PairingTab: View {
                     onToggleWatching: { viewModel.isWatching ? viewModel.stop() : viewModel.start() }
                 )
                 .frame(maxWidth: .infinity)
-
-
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
@@ -162,49 +156,9 @@ private struct PairingTab: View {
                 .padding(.horizontal, 4)
             }
             .padding(24)
+            .frame(maxWidth: 920)
+            .frame(maxWidth: .infinity)
         }
-    }
-}
-
-private struct StatusStrip: View {
-    let status: StatusDescriptor
-    let entryCount: Int
-    let networkDescription: String
-    let clients: [SyncClientInfo]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                StatusChip(label: status.label, tint: status.tint, contentColor: .white)
-                StatusChip(label: "\(entryCount) saved", tint: Color.gray.opacity(0.15), contentColor: .secondary)
-                StatusChip(label: networkDescription, tint: Color.gray.opacity(0.15), contentColor: .secondary)
-                if !clients.isEmpty {
-                    StatusChip(label: "\(clients.count) connected", tint: Color.gray.opacity(0.15), contentColor: .secondary)
-                }
-                Spacer()
-            }
-
-            if !clients.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(clients) { client in
-                            StatusChip(label: client.deviceName, tint: Color.gray.opacity(0.12), contentColor: .secondary)
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Palette.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Palette.surfaceBorder)
-                )
-                .shadow(color: Color.black.opacity(0.22), radius: 14, x: 0, y: 8)
-        )
     }
 }
 
@@ -374,7 +328,6 @@ private struct SearchHeader: View {
 }
 
 private struct HeroCard: View {
-    let status: StatusDescriptor
     let entryCount: Int
     let filteredCount: Int
     let networkDescription: String
@@ -390,7 +343,6 @@ private struct HeroCard: View {
                 .font(.system(size: 14))
 
             HStack(spacing: 12) {
-                StatusChip(label: status.label, tint: Palette.accent.opacity(0.12), contentColor: Palette.primaryText)
                 StatusChip(label: "\(entryCount) saved", tint: Palette.accent.opacity(0.12), contentColor: Palette.primaryText)
                 StatusChip(label: networkDescription, tint: Palette.accent.opacity(0.1), contentColor: Palette.primaryText.opacity(0.9))
             }
@@ -559,6 +511,14 @@ private struct HistoryGridRow: View {
             }
             .frame(width: 140, alignment: .trailing)
         }
+        HStack(spacing: 8) {
+            StatusTag(text: entry.isPinned ? "Pinned" : "Pin", tint: Color.gray.opacity(0.12))
+            StatusTag(text: entry.syncState.rawValue.capitalized, tint: Color(hex: 0xe5e7eb), contentColor: Color(hex: 0x1f2937))
+            StatusTag(text: entry.contentType.rawValue.capitalized, tint: Color(hex: 0xf1f5f9), contentColor: Color(hex: 0x0f172a))
+            Spacer()
+        }
+        .padding(.leading, 52)
+        .padding(.top, 6)
         .frame(minHeight: 72)
         .padding(.vertical, 10)
         .padding(.horizontal, 4)
@@ -865,21 +825,25 @@ private struct StatusTag: View {
 private struct StatusChip: View {
     let label: String
     let tint: Color
-    var contentColor: Color = .black
+    var contentColor: Color = Palette.primaryText
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Circle()
-                .fill(contentColor == .white ? Color.white.opacity(0.8) : tint.opacity(0.9))
+                .fill(tint.opacity(0.9))
                 .frame(width: 8, height: 8)
             Text(label)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
         .background(
             Capsule()
-                .fill(tint)
+                .fill(tint.opacity(0.18))
+                .overlay(
+                    Capsule()
+                        .stroke(tint.opacity(0.3))
+                )
         )
         .foregroundStyle(contentColor)
     }
@@ -1044,11 +1008,6 @@ private struct PairingCodeDisplay: View {
     }
 }
 
-private struct StatusDescriptor {
-    let label: String
-    let tint: Color
-}
-
 private extension Color {
     init(hex: UInt32) {
         let red = Double((hex & 0xFF0000) >> 16) / 255.0
@@ -1088,6 +1047,8 @@ private struct TopBar: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
+        .frame(maxWidth: 920)
+        .frame(maxWidth: .infinity)
         .background(Palette.background)
     }
 }
@@ -1138,38 +1099,49 @@ private struct StatusRow: View {
     let entryCount: Int
     let networkDescription: String
 
-    private var statusText: String {
-        switch state {
-        case .stopped: return "Stopped"
-        case .connecting: return "Connecting"
-        case .connected: return "Syncing"
-        case .failed: return "Error"
-        }
-    }
-
-    private var statusColor: Color {
-        switch state {
-        case .connected: return Color(hex: 0x22c55e)
-        case .connecting: return Color(hex: 0xeab308)
-        case .failed: return Color(hex: 0xf97316)
-        case .stopped: return Palette.mutedText
-        }
-    }
-
     var body: some View {
         HStack(spacing: 12) {
-            HStack(spacing: 8) {
-                Circle().fill(statusColor).frame(width: 10, height: 10)
-                Text(statusText)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(statusColor)
-            }
+            StatusPillDesktop(state: state)
             Spacer()
             StatusChip(label: "\(entryCount) saved", tint: Palette.accent.opacity(0.12), contentColor: Palette.primaryText)
             StatusChip(label: networkDescription, tint: Palette.accent.opacity(0.1), contentColor: Palette.primaryText)
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 10)
+        .frame(maxWidth: 920)
+        .frame(maxWidth: .infinity)
         .background(Palette.background)
+    }
+}
+
+private struct StatusPillDesktop: View {
+    let state: SyncServer.ServerState
+
+    private var spec: (text: String, color: Color, icon: String) {
+        switch state {
+        case .connected: return ("Syncing", Color(hex: 0x22c55e), "checkmark.circle.fill")
+        case .connecting: return ("Connecting", Color(hex: 0xeab308), "wifi")
+        case .failed: return ("Error", Color(hex: 0xf97316), "exclamationmark.triangle.fill")
+        case .stopped: return ("Stopped", Palette.mutedText, "pause.circle")
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: spec.icon)
+            Text(spec.text)
+                .font(.subheadline.weight(.semibold))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            Capsule()
+                .fill(spec.color.opacity(0.12))
+                .overlay(
+                    Capsule()
+                        .stroke(spec.color.opacity(0.2))
+                )
+        )
+        .foregroundStyle(spec.color)
     }
 }
