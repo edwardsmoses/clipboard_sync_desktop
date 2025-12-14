@@ -71,23 +71,6 @@ struct ContentView: View {
                 .tabItem { EmptyView() }
             }
             .tabViewStyle(.automatic)
-
-            if tabSelection == .history, let entry = selection.flatMap({ id in viewModel.historyStore.entries.first(where: { $0.id == id }) }) {
-                DetailsDrawer(
-                    entry: entry,
-                    onClose: { selection = nil },
-                    onCopy: { entry in
-                        if let text = entry.text, !text.isEmpty {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(text, forType: .string)
-                        }
-                    },
-                    onDelete: { entry in
-                        viewModel.delete(entry: entry)
-                        selection = nil
-                    }
-                )
-            }
         }
         .background(Palette.background)
         .onAppear { viewModel.start() }
@@ -316,11 +299,11 @@ private struct SearchHeader: View {
                     .textFieldStyle(.plain)
                     .foregroundStyle(Palette.primaryText)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white)
                     .overlay(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .stroke(Palette.surfaceBorder)
@@ -570,7 +553,7 @@ private struct HistoryGridRow: View {
             IconBadge(contentType: entry.contentType)
                 .frame(width: 32, alignment: .center)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(entry.deviceName)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Palette.primaryText)
@@ -599,18 +582,18 @@ private struct HistoryGridRow: View {
                 }
                 .fixedSize()
             }
-            .frame(width: 140, alignment: .trailing)
+            .frame(width: 120, alignment: .trailing)
         }
         HStack(spacing: 8) {
-            StatusTag(text: entry.isPinned ? "Pinned" : "Pin", tint: Color.gray.opacity(0.12))
-            StatusTag(text: entry.syncState.rawValue.capitalized, tint: Color(hex: 0xe5e7eb), contentColor: Color(hex: 0x1f2937))
-            StatusTag(text: entry.contentType.rawValue.capitalized, tint: Color(hex: 0xf1f5f9), contentColor: Color(hex: 0x0f172a))
+            StatusTag(text: entry.isPinned ? "Pinned" : "Pin", tint: Color.gray.opacity(0.1))
+            StatusTag(text: entry.syncState.rawValue.capitalized, tint: Palette.surfaceBorder, contentColor: Palette.primaryText)
+            StatusTag(text: entry.contentType.rawValue.capitalized, tint: Palette.surfaceBorder, contentColor: Palette.primaryText)
             Spacer()
         }
-        .padding(.leading, 52)
-        .padding(.top, 6)
-        .frame(minHeight: 72)
-        .padding(.vertical, 10)
+        .padding(.leading, 44)
+        .padding(.top, 4)
+        .frame(minHeight: 64)
+        .padding(.vertical, 8)
         .padding(.horizontal, 4)
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
@@ -842,7 +825,6 @@ private struct DetailsDrawer: View {
             Rectangle()
                 .fill(Palette.surfaceBorder)
                 .frame(width: 1)
-                .frame(maxHeight: .infinity)
         }
         .ignoresSafeArea(edges: .vertical)
     }
@@ -925,14 +907,14 @@ private struct StatusChip: View {
             Text(label)
                 .font(.system(size: 12, weight: .semibold))
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(
             Capsule()
-                .fill(tint.opacity(0.18))
+                .fill(tint.opacity(0.14))
                 .overlay(
                     Capsule()
-                        .stroke(tint.opacity(0.3))
+                        .stroke(tint.opacity(0.22))
                 )
         )
         .foregroundStyle(contentColor)
@@ -1138,11 +1120,11 @@ private struct StatusRow: View {
     let networkDescription: String
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             StatusPillDesktop(state: state)
             Spacer()
-            HStack(spacing: 8) {
-                StatusChip(label: "\(entryCount) saved", tint: Palette.accent.opacity(0.12), contentColor: Palette.primaryText)
+            HStack(spacing: 6) {
+                StatusChip(label: "\(entryCount) saved", tint: Palette.accent.opacity(0.1), contentColor: Palette.primaryText)
                 StatusChip(label: networkDescription, tint: Palette.accent.opacity(0.08), contentColor: Palette.primaryText)
             }
         }
@@ -1172,8 +1154,8 @@ private struct StatusPillDesktop: View {
             Text(spec.text)
                 .font(.subheadline.weight(.semibold))
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 9)
         .background(
             Capsule()
                 .fill(spec.color.opacity(0.12))
