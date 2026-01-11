@@ -557,10 +557,11 @@ private struct HistoryGridRow: View {
                 Text(entry.deviceName)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Palette.primaryText)
-                Text(entry.preview.isEmpty ? "No preview available" : entry.preview)
-                    .font(.system(size: 14))
-                    .lineLimit(2)
-                    .foregroundStyle(Palette.primaryText)
+                LinkifiedText(
+                    text: entry.preview.isEmpty ? "No preview available" : entry.preview,
+                    font: .system(size: 14),
+                    lineLimit: 2
+                )
             }
 
             Spacer()
@@ -612,9 +613,7 @@ private struct EntryDetailView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Content")
                             .font(.headline)
-                        Text(text)
-                            .font(.body)
-                            .textSelection(.enabled)
+                        LinkifiedText(text: text, font: .body, isSelectable: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .modifier(DetailCardStyle())
@@ -770,10 +769,7 @@ private struct DetailsDrawer: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Content")
                         .font(.headline)
-                    Text(text)
-                        .font(.body)
-                        .lineLimit(8)
-                        .textSelection(.enabled)
+                    LinkifiedText(text: text, font: .body, lineLimit: 8, isSelectable: true)
                 }
             }
 
@@ -827,6 +823,52 @@ private struct DetailsDrawer: View {
                 .frame(width: 1)
         }
         .ignoresSafeArea(edges: .vertical)
+    }
+}
+
+private struct LinkifiedText: View {
+    let text: String
+    var font: Font? = nil
+    var lineLimit: Int? = nil
+    var isSelectable = false
+    var color: Color = Palette.primaryText
+
+    var body: some View {
+        if isSelectable {
+            Text(attributedText)
+                .font(font)
+                .lineLimit(lineLimit)
+                .textSelection(.enabled)
+        } else {
+            Text(attributedText)
+                .font(font)
+                .lineLimit(lineLimit)
+        }
+    }
+
+    private var attributedText: AttributedString {
+        var attributed = AttributedString(text)
+        attributed.foregroundColor = color
+
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return attributed
+        }
+
+        let searchRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        for match in detector.matches(in: text, options: [], range: searchRange) {
+            guard let url = match.url,
+                  let range = Range(match.range, in: text),
+                  let start = AttributedString.Index(range.lowerBound, within: attributed),
+                  let end = AttributedString.Index(range.upperBound, within: attributed) else {
+                continue
+            }
+            let attrRange = start..<end
+            attributed[attrRange].link = url
+            attributed[attrRange].foregroundColor = Palette.accent
+            attributed[attrRange].underlineStyle = .single
+        }
+
+        return attributed
     }
 }
 
